@@ -1,0 +1,103 @@
+/*
+ * DELTAMIND AI — DESIGN TOKENS
+ * ============================
+ * This is the single editable source of truth for color and type. Change a
+ * value here and it propagates everywhere (Tailwind utilities are generated
+ * from the `@theme` block below, which just re-exports these CSS variables).
+ *
+ * Palette identity: charcoal black (dark, default) / premium white (light),
+ * with International Orange (Aerospace) #FF4F00 as the single accent color
+ * carried across both themes — same hue, different hover/pressed shades
+ * (lighter on dark backgrounds, darker on light ones, so hover always reads
+ * as *more* contrast against its own background).
+ *
+ * To re-theme: edit the hex values below. To swap the accent color
+ * entirely, change `--accent` in both blocks (keep it identical in both —
+ * that's what makes the brand color read as "the same app" across themes).
+ */
+
+:root {
+  --ground: #faf9f7;
+  --surface: #ffffff;
+  --surface-alt: #f1f0ed;
+
+  --border: #e0ddd6;
+  --divider: #000000;
+
+  --text-primary: #17140f;
+  --text-secondary: #5c5850;
+  --text-disabled: #a19d94;
+
+  --accent: #ff4f00;
+  --accent-hover: #d94300;
+  --accent-pressed: #b83900;
+  --text-on-accent: #ffffff;
+  --accent-glow: rgb(255 79 0 / 30%);
+
+  --success: #2f8f56;
+  --error: #c14a3a;
+  --warning: #b9812a;
+  --signal-wait: #8a8478;
+
+  color-scheme: light;
+}
+
+.dark {
+  --ground: #121212;
+  --surface: #1a1a1a;
+  --surface-alt: #262626;
+
+  --border: #333333;
+  --divider: #ffffff;
+
+  --text-primary: #f2ede6;
+  --text-secondary: #b3aea6;
+  --text-disabled: #6b6b6b;
+
+  --accent: #ff4f00;
+  --accent-hover: #ff7433;
+  --accent-pressed: #ff4f00;
+  --text-on-accent: #ffffff;
+  --accent-glow: rgb(255 79 0 / 45%);
+
+  --success: #59b37d;
+  --error: #e2584a;
+  --warning: #e0a53f;
+  --signal-wait: #8a8478;
+
+  color-scheme: dark;
+}
+
+@theme {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+
+  --color-border: var(--border);
+  --color-divider: var(--divider);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-disabled: var(--text-disabled);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-pressed: var(--accent-pressed);
+  --color-text-on-accent: var(--text-on-accent);
+
+  --color-success: var(--success);
+  --color-error: var(--error);
+  --color-warning: var(--warning);
+  --color-signal-wait: var(--signal-wait);
+
+  --radius-card: 10px;
+
+  /* Fraunces (display serif) carries the wordmark/hero moments; IBM Plex
+     Sans + Mono (a paired family) handle UI labels and tabular data so they
+     read as one coherent instrument. Wallpoet is reserved for the logo
+     mark only. Swap any of these without touching component code. */
+  --font-display: 'Fraunces', ui-serif, Georgia, serif;
+  --font-sans: 'IBM Plex Sans', system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', Consolas, 'DejaVu Sans Mono', monospace;
+  --font-logo: 'Wallpoet', 'IBM Plex Mono', monospace;
+}

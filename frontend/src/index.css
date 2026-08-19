@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@import "@fontsource/fraunces/500.css";
+@import "@fontsource/fraunces/600.css";
+@import "@fontsource/fraunces/600-italic.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/wallpoet/400.css";
+
+@import "./styles/theme.css";
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Tabular figures everywhere numbers appear in data/mono contexts, so
+   columns of stats/timestamps/prices align like a real ticker instead of
+   jittering with proportional digit widths. */
+.font-mono, .tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Live-signal pulse — reserved for the one thing that's actually real-time
+   (the RUNNING status dot). Respects reduced-motion; a steady glow instead
+   of a loop when motion is off. */
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 var(--pulse-color, var(--success)); }
+  70%  { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.animate-pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-ring {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--pulse-color, var(--success));
+  }
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
