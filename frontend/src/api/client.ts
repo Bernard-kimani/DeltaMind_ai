@@ -35,6 +35,7 @@ export const api = {
   resetConfig: () => postJSON<FlatConfig>("/api/config/reset"),
   testLLM: (provider: string, model: string, apiKey: string) => postJSON<TestResult>("/api/config/test-llm", { provider, model, api_key: apiKey }),
   testAlpaca: () => postJSON<TestResult>("/api/config/test-alpaca"),
+  getWatchlist: () => getJSON<{ csv: string; categories: Record<string, string[]> }>("/api/config/watchlist"),
 
   // Agent engine lifecycle
   getEngineStatus: () => getJSON<EngineStatus>("/api/engine/status"),

@@ -3,15 +3,67 @@ the storage backend (SQLite now, Supabase Postgres later) stays swappable
 behind a stable function-based interface instead of scattered ORM calls.
 """
 
+import datetime as dt
+
 from sqlalchemy import func, select
 
-from app.db.models import AgentDecision, BacktestRun, Trade
+from app.db.models import AgentDecision, BacktestRun, Trade, WheelState
 from app.db.session import get_session
 
 
 def save_trade(symbol: str, order: dict, result: dict, thesis: str = "", track: str | None = None) -> None:
     with get_session() as session:
-        session.add(Trade(symbol=symbol, track=track, order=order, result=result, thesis=thesis))
+        session.add(Trade(symbol=symbol, track=track, order=order, result=result, thesis=thesis, status="open"))
+        session.commit()
+
+
+def list_open_trades(track: str | None = None) -> list[dict]:
+    """Backs position_monitor.py's sweep — the DB-side half of "what did we
+    open, and what did we pay/collect for it" needed to compute unrealized
+    P&L against a freshly re-priced chain."""
+    with get_session() as session:
+        query = select(Trade).where(Trade.status == "open")
+        if track is not None:
+            query = query.where(Trade.track == track)
+        rows = session.scalars(query.order_by(Trade.created_at.desc())).all()
+        return [
+            {
+                "id": r.id,
+                "created_at": r.created_at.isoformat(),
+                "symbol": r.symbol,
+                "track": r.track,
+                "order": r.order,
+                "result": r.result,
+                "thesis": r.thesis,
+            }
+            for r in rows
+        ]
+
+
+def close_trade(trade_id: int, realized_pnl: float) -> None:
+    with get_session() as session:
+        trade = session.get(Trade, trade_id)
+        if trade is None:
+            return
+        trade.status = "closed"
+        trade.closed_at = dt.datetime.utcnow()
+        trade.realized_pnl = realized_pnl
+        session.commit()
+
+
+def get_wheel_state(symbol: str) -> bool:
+    with get_session() as session:
+        row = session.get(WheelState, symbol)
+        return row.holds_shares if row else False
+
+
+def set_wheel_state(symbol: str, holds_shares: bool) -> None:
+    with get_session() as session:
+        row = session.get(WheelState, symbol)
+        if row is None:
+            session.add(WheelState(symbol=symbol, holds_shares=holds_shares))
+        else:
+            row.holds_shares = holds_shares
         session.commit()
 
 

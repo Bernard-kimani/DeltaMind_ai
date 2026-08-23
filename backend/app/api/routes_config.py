@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app import config_store
+from app import config_store, watchlist
 from app.alpaca.rest_client import test_connection as test_alpaca_connection
 from app.llm.client import test_provider
 
@@ -50,3 +50,11 @@ def test_llm(body: TestLLMRequest) -> dict:
 def test_alpaca() -> dict:
     ok, message = test_alpaca_connection()
     return {"ok": ok, "message": message}
+
+
+@router.get("/watchlist")
+def get_watchlist() -> dict:
+    """Backs the Controls tab's "Load curated watchlist" button — the
+    ~15-symbol categorized universe from app/watchlist.py, as a
+    comma-separated string matching the Symbols field's own format."""
+    return {"csv": watchlist.as_csv(), "categories": watchlist.WATCHLIST_CATEGORIES}

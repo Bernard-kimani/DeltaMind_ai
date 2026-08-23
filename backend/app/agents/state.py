@@ -18,7 +18,7 @@ class AgentState(TypedDict, total=False):
     ]
 
     # market_ingestion.py
-    market_data: dict[str, Any]
+    market_data: list[dict[str, Any]]  # oldest-first bars, see alpaca/rest_client.get_recent_bars
     option_chain: list[dict[str, Any]]
 
     # quant_engine.py — deterministic, no LLM involved
@@ -26,6 +26,7 @@ class AgentState(TypedDict, total=False):
     iv_percentile: float
     historical_volatility: float
     portfolio_risk: dict[str, Any]
+    technical_signal: dict[str, Any]  # see quant/technical_signals.py — breakout/direction/volume_ratio
 
     # news_analyst.py — LLM
     sentiment_score: float

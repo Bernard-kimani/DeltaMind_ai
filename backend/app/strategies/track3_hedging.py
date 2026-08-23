@@ -21,7 +21,8 @@ def propose_order(state: AgentState, thesis: str) -> dict | None:
         return None
 
     option_chain = state.get("option_chain", [])
-    spot = state.get("market_data", {}).get("close")
+    market_data = state.get("market_data", [])
+    spot = market_data[-1]["close"] if market_data else None
     if not spot or not option_chain:
         return None
 

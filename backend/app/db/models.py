@@ -23,6 +23,13 @@ class Trade(Base):
     order: Mapped[dict] = mapped_column(JSON)
     result: Mapped[dict] = mapped_column(JSON)
     thesis: Mapped[str] = mapped_column(String, nullable=True)
+    # "open"/"closed" — lets position_monitor.py know which DB row a given
+    # live Alpaca position corresponds to, and recover the net debit paid
+    # (Track 1) or premium collected (Track 4) for P&L math without
+    # re-deriving it from the order JSON every sweep.
+    status: Mapped[str] = mapped_column(String, default="open")
+    closed_at: Mapped[dt.datetime] = mapped_column(DateTime, nullable=True)
+    realized_pnl: Mapped[float] = mapped_column(Float, nullable=True)
 
 
 class AgentDecision(Base):
@@ -41,6 +48,21 @@ class AgentDecision(Base):
     proposed_order: Mapped[dict] = mapped_column(JSON, nullable=True)
     risk_approved: Mapped[bool] = mapped_column(nullable=True)
     risk_rejection_reason: Mapped[str] = mapped_column(String, nullable=True)
+
+
+class WheelState(Base):
+    """One row per symbol: whether Track 4's wheel currently holds assigned
+    shares (sell covered calls) or not (sell cash-secured puts). Written by
+    position_monitor.py's sweep, read by quant_engine.py's
+    portfolio_risk_snapshot() — see track4_income_wheel.py's
+    `holds_underlying_shares` gap.
+    """
+
+    __tablename__ = "wheel_state"
+
+    symbol: Mapped[str] = mapped_column(String, primary_key=True)
+    holds_shares: Mapped[bool] = mapped_column(default=False)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
 
 
 class BacktestRun(Base):

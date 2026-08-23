@@ -57,11 +57,22 @@ def main() -> None:
     logger.info("Importing agent graph and dependencies (LangGraph, Alpaca SDK, LLM clients)...")
 
     from app.agents.graph import run_cycle
+    from app.agents.position_monitor import sweep_positions
     from app.db.repository import save_agent_decision
 
     logger.info("Imports complete — entering live decision loop")
 
     while True:
+        try:
+            # Runs once per full pass, before fresh entries are proposed —
+            # a stop-loss/profit-take/assignment should be acted on before
+            # this cycle's new proposals get evaluated against portfolio
+            # numbers that sweep would otherwise leave stale.
+            for action in sweep_positions(args.track):
+                logger.info("[%s] monitor: %s", action["symbol"], action["action"])
+        except Exception:
+            logger.exception("position monitor sweep failed")
+
         for symbol in symbols:
             try:
                 result = run_cycle(symbol=symbol, track=args.track)

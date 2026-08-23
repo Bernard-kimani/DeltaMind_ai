@@ -108,6 +108,11 @@ export default function ControlsPage({ onStatusMessage }: { onStatusMessage: (ms
     onSuccess: (r) => setAlpacaMsg(r.message),
   });
 
+  const loadWatchlistMutation = useMutation({
+    mutationFn: api.getWatchlist,
+    onSuccess: (r) => { set("symbols", r.csv); onStatusMessage(`Loaded curated watchlist (${r.csv.split(",").length} symbols)`); },
+  });
+
   const startMutation = useMutation({
     mutationFn: () => api.startEngine({ symbols: form.symbols, track: form.track, interval_seconds: Number(form.interval_seconds) }),
     onSuccess: (r) => { onStatusMessage(r.message); qc.invalidateQueries({ queryKey: ["engine-status"] }); },
@@ -215,7 +220,10 @@ export default function ControlsPage({ onStatusMessage }: { onStatusMessage: (ms
             </p>
             <p className="text-[11px] font-mono text-text-disabled mb-3 h-4">{running && status?.pid ? `pid ${status.pid}` : ""}</p>
             <div className="flex flex-col gap-3">
-              <TextField label="Symbols" mono value={form.symbols} onChange={(e) => set("symbols", e.target.value)} placeholder="SPY,QQQ" />
+              <div className="flex flex-col gap-1.5">
+                <TextField label="Symbols" mono value={form.symbols} onChange={(e) => set("symbols", e.target.value)} placeholder="SPY,QQQ" />
+                <Button onClick={() => loadWatchlistMutation.mutate()} disabled={loadWatchlistMutation.isPending} className="self-start">Load Curated Watchlist</Button>
+              </div>
               <Select label="Track" value={form.track} onChange={(e) => set("track", e.target.value as FlatConfig["track"])}>
                 {TRACKS.map((t) => <option key={t} value={t}>{TRACK_LABELS[t]}</option>)}
               </Select>
