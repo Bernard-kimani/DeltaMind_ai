@@ -10,9 +10,9 @@ export const TRACK_LABELS: Record<Track, string> = {
 
 export const TRACK_SUMMARY: Record<Track, { structure: string; regime: string; metric: string }> = {
   track1_alpha_spreads: {
-    structure: "Vertical debit spreads — buy 0.70Δ, sell 0.30Δ, 14 DTE",
-    regime: "Strong trend / momentum",
-    metric: "Signal conviction + Delta balance",
+    structure: "Single-leg long call/put, ~0.50Δ, 1-2 DTE — bar-close triggered",
+    regime: "Strong trend / momentum (1m confluence + 15m trend)",
+    metric: "RVOL + RSI band + VWAP + 15m EMA(50) trend",
   },
   track2_volatility_events: {
     structure: "Long strangle (IV%<25) or iron condor (IV%>85) around events",
@@ -25,9 +25,9 @@ export const TRACK_SUMMARY: Record<Track, { structure: string; regime: string; m
     metric: "Portfolio drawdown + beta-weighted delta",
   },
   track4_income_wheel: {
-    structure: "The Wheel — 0.30Δ cash-secured puts → covered calls",
-    regime: "Sideways / range-bound",
-    metric: "Theta capture rate + assignment risk",
+    structure: "The Wheel — 0.25–0.30Δ cash-secured puts ↔ covered calls, ~21 DTE",
+    regime: "Elevated IV + healthy pullback (200-EMA/RSI regime, CSP entries only)",
+    metric: "IV percentile ≥ 45 + daily 200-EMA/RSI(14) regime",
   },
 };
 
@@ -77,12 +77,17 @@ export interface FlatConfig {
   symbols: string;
   track: Track;
   interval_seconds: string;
+  sentiment_threshold: string;
+  volume_ratio_min: string;
 }
 
 export interface EngineStatus {
   is_running: boolean;
   pid: number | null;
   started_at: string | null;
+  auto_restart_count: number;
+  circuit_breaker_tripped: boolean;
+  last_crash_reason: string | null;
 }
 
 export interface EngineStats {
@@ -91,6 +96,16 @@ export interface EngineStats {
   approved_trades: number;
   rejected_cycles: number;
   last_decision_time: string | null;
+}
+
+export interface TrackPnlSummary {
+  track: string;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  open_count: number;
+  closed_count: number;
+  win_count: number;
+  matched_open_positions: number;
 }
 
 export interface TestResult {

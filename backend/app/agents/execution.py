@@ -42,7 +42,7 @@ def run(state: AgentState) -> dict:
         order_class="mleg" if len(legs) > 1 else "simple",
         order_type=order_type,
         time_in_force=order.get("time_in_force", "day"),
-        qty=1,
+        qty=order.get("qty", 1),
         limit_price=limit_price,
     )
     save_trade(symbol=state["symbol"], order=order, result=result, thesis=state.get("thesis", ""), track=state["track"])

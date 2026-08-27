@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
-import type { AgentDecision, FlatConfig } from "../../api/types";
-import { TRACKS, TRACK_LABELS } from "../../api/types";
-import { Button, Card, DecisionRow, PositionRow, Section, Select, StatusDot, TextField } from "../../components/primitives";
+import type { AgentDecision, FlatConfig, Track } from "../../api/types";
+import { Button, Card, DecisionRow, PositionRow, Section, Select, StatTile, StatusDot, TextField } from "../../components/primitives";
 import { MODELS_BY_PROVIDER, PROVIDER_LABELS } from "./models";
+import { SymbolPicker } from "./SymbolPicker";
 
 /** Wide, two-column popup for a single decision-history row — the full
  * thesis/proposed-order doesn't fit the one-line row, so it only ever
- * appears here. Facts (track/sentiment/verdict) in a narrow left rail,
- * reasoning given the rest of the width to breathe as prose. */
+ * appears here. */
 function DecisionDetailModal({ decision, onClose }: { decision: AgentDecision; onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -34,7 +33,6 @@ function DecisionDetailModal({ decision, onClose }: { decision: AgentDecision; o
           <div className="md:w-48 shrink-0 flex flex-col gap-3">
             <div className="text-[11px] font-mono tabular-nums text-text-secondary">
               {new Date(decision.created_at).toLocaleString()}
-              <br />{TRACK_LABELS[decision.track as keyof typeof TRACK_LABELS] ?? decision.track}
             </div>
             {decision.sentiment_score != null && (
               <div className="text-xs font-mono tabular-nums">Sentiment <span className="text-text-primary">{decision.sentiment_score.toFixed(2)}</span></div>
@@ -59,30 +57,40 @@ function DecisionDetailModal({ decision, onClose }: { decision: AgentDecision; o
   );
 }
 
-const DEFAULTS: FlatConfig = {
+const BASE_DEFAULTS: Omit<FlatConfig, "track"> = {
   llm_provider: "featherless",
   llm_model: MODELS_BY_PROVIDER.featherless[0].value,
   featherless_api_key: "",
   fireworks_api_key: "",
   temperature: "0.3",
   symbols: "SPY,QQQ",
-  track: "track1_alpha_spreads",
   interval_seconds: "300",
+  sentiment_threshold: "0.5",
+  volume_ratio_min: "1.2",
 };
 
-export default function ControlsPage({ onStatusMessage }: { onStatusMessage: (msg: string) => void }) {
+export default function ControlsPage({ track, onStatusMessage }: { track: Track; onStatusMessage: (msg: string) => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState<FlatConfig>(DEFAULTS);
+  // Both tracks now hardcode their LLM gate (track1_validator.py /
+  // track4_validator.py) — neither reads sentiment_threshold/volume_ratio_min
+  // any more, so those fields are hidden for both. Track 1 runs bar-close-
+  // triggered off a real websocket stream (no fixed interval); only Track 4's
+  // interval-polling loop still needs the Interval field.
+  const SHOW_INTERVAL = track === "track4_income_wheel";
+  const [form, setForm] = useState<FlatConfig>({ ...BASE_DEFAULTS, track });
   const [dirty, setDirty] = useState(false);
   const [apiMsg, setApiMsg] = useState<string | null>(null);
   const [alpacaMsg, setAlpacaMsg] = useState<string | null>(null);
   const [openDecision, setOpenDecision] = useState<AgentDecision | null>(null);
 
   const { data: config } = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
-  const { data: status } = useQuery({ queryKey: ["engine-status"], queryFn: api.getEngineStatus, refetchInterval: 3000 });
-  const { data: stats } = useQuery({ queryKey: ["engine-stats"], queryFn: api.getEngineStats, refetchInterval: status?.is_running ? 2000 : 5000 });
-  const { data: decisions } = useQuery({ queryKey: ["decisions"], queryFn: () => api.getDecisions(50), refetchInterval: 3000 });
+  const { data: status } = useQuery({ queryKey: ["engine-status", track], queryFn: () => api.getEngineStatus(track), refetchInterval: 3000 });
+  const { data: stats } = useQuery({ queryKey: ["engine-stats", track], queryFn: () => api.getEngineStats(track), refetchInterval: status?.is_running ? 2000 : 5000 });
+  const { data: decisions } = useQuery({ queryKey: ["decisions", track], queryFn: () => api.getDecisions(50, track), refetchInterval: 3000 });
   const { data: positions } = useQuery({ queryKey: ["positions"], queryFn: api.getPositions, refetchInterval: 5000 });
+  const { data: pnlSummary } = useQuery({ queryKey: ["pnl-summary"], queryFn: api.getPnlSummary, refetchInterval: 10000 });
+  const pnl = pnlSummary?.find((p) => p.track === track);
+  const { data: watchlist } = useQuery({ queryKey: ["watchlist"], queryFn: api.getWatchlist, staleTime: Infinity });
 
   useEffect(() => {
     if (config && !dirty) setForm(config);
@@ -104,26 +112,29 @@ export default function ControlsPage({ onStatusMessage }: { onStatusMessage: (ms
     onSuccess: (r) => setApiMsg(r.message),
   });
   const testAlpacaMutation = useMutation({
-    mutationFn: api.testAlpaca,
+    mutationFn: () => api.testAlpaca(track),
     onSuccess: (r) => setAlpacaMsg(r.message),
   });
 
-  const loadWatchlistMutation = useMutation({
-    mutationFn: api.getWatchlist,
-    onSuccess: (r) => { set("symbols", r.csv); onStatusMessage(`Loaded curated watchlist (${r.csv.split(",").length} symbols)`); },
+  const engineArgs = () => ({
+    track,
+    symbols: form.symbols,
+    interval_seconds: Number(form.interval_seconds),
+    sentiment_threshold: Number(form.sentiment_threshold),
+    volume_ratio_min: Number(form.volume_ratio_min),
   });
-
+  const invalidateEngine = () => { qc.invalidateQueries({ queryKey: ["engine-status", track] }); qc.invalidateQueries({ queryKey: ["engine-stats", track] }); };
   const startMutation = useMutation({
-    mutationFn: () => api.startEngine({ symbols: form.symbols, track: form.track, interval_seconds: Number(form.interval_seconds) }),
-    onSuccess: (r) => { onStatusMessage(r.message); qc.invalidateQueries({ queryKey: ["engine-status"] }); },
+    mutationFn: () => api.startEngine(engineArgs()),
+    onSuccess: (r) => { onStatusMessage(r.message); invalidateEngine(); },
   });
   const stopMutation = useMutation({
-    mutationFn: api.stopEngine,
-    onSuccess: (r) => { onStatusMessage(r.message); qc.invalidateQueries({ queryKey: ["engine-status"] }); },
+    mutationFn: () => api.stopEngine(track),
+    onSuccess: (r) => { onStatusMessage(r.message); invalidateEngine(); },
   });
   const restartMutation = useMutation({
-    mutationFn: () => api.restartEngine({ symbols: form.symbols, track: form.track, interval_seconds: Number(form.interval_seconds) }),
-    onSuccess: (r) => { onStatusMessage(r.message); qc.invalidateQueries({ queryKey: ["engine-status"] }); },
+    mutationFn: () => api.restartEngine(engineArgs()),
+    onSuccess: (r) => { onStatusMessage(r.message); invalidateEngine(); },
   });
 
   const exportConfig = () => {
@@ -139,7 +150,7 @@ export default function ControlsPage({ onStatusMessage }: { onStatusMessage: (ms
   const importConfig = (file: File) => {
     file.text().then((text) => {
       try {
-        setForm({ ...DEFAULTS, ...JSON.parse(text) });
+        setForm({ ...BASE_DEFAULTS, track, ...JSON.parse(text) });
         setDirty(true);
         onStatusMessage("Configuration imported — review and Save");
       } catch {
@@ -154,62 +165,85 @@ export default function ControlsPage({ onStatusMessage }: { onStatusMessage: (ms
   const setCurrentApiKey = (v: string) => set(form.llm_provider === "featherless" ? "featherless_api_key" : "fireworks_api_key", v);
 
   const lastDecisionLabel = stats?.last_decision_time ? new Date(stats.last_decision_time).toLocaleTimeString() : "None yet";
+  const pnlTotal = (pnl?.realized_pnl ?? 0) + (pnl?.unrealized_pnl ?? 0);
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_0.9fr] gap-6 items-start">
-        <div className="flex flex-col">
-          <Section title="AI Configuration">
-            <div className="flex flex-col gap-3">
-              <Select
-                label="Provider" value={form.llm_provider}
-                onChange={(e) => { const p = e.target.value as FlatConfig["llm_provider"]; set("llm_provider", p); set("llm_model", MODELS_BY_PROVIDER[p]?.[0]?.value ?? ""); }}
-              >
-                {Object.keys(MODELS_BY_PROVIDER).map((p) => <option key={p} value={p}>{PROVIDER_LABELS[p] ?? p}</option>)}
-              </Select>
-              <Select label="Model" value={form.llm_model} onChange={(e) => set("llm_model", e.target.value)}>
-                {models.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-              </Select>
-              <TextField
-                label="API Key" mono type="password" autoComplete="off" value={currentApiKey}
-                onChange={(e) => setCurrentApiKey(e.target.value)} placeholder="Enter your API key..."
-              />
-              <Button onClick={() => testApiMutation.mutate()} disabled={testApiMutation.isPending} className="self-start">Test API</Button>
-              {apiMsg && <p className="text-xs text-text-secondary">{apiMsg}</p>}
-              <TextField label="Temperature" mono value={form.temperature} onChange={(e) => set("temperature", e.target.value)} className="w-28" />
-            </div>
-          </Section>
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-[2fr_0.9fr] gap-6 items-start">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div className="flex flex-col">
+            <Section title="AI Configuration">
+              <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <Select
+                    label="Provider" value={form.llm_provider}
+                    onChange={(e) => { const p = e.target.value as FlatConfig["llm_provider"]; set("llm_provider", p); set("llm_model", MODELS_BY_PROVIDER[p]?.[0]?.value ?? ""); }}
+                  >
+                    {Object.keys(MODELS_BY_PROVIDER).map((p) => <option key={p} value={p}>{PROVIDER_LABELS[p] ?? p}</option>)}
+                  </Select>
+                  <Select label="Model" value={form.llm_model} onChange={(e) => set("llm_model", e.target.value)}>
+                    {models.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </Select>
+                </div>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1 min-w-0">
+                    <TextField
+                      label="API Key" mono type="password" autoComplete="off" value={currentApiKey}
+                      onChange={(e) => setCurrentApiKey(e.target.value)} placeholder="Enter your API key..."
+                    />
+                  </div>
+                  <Button onClick={() => testApiMutation.mutate()} disabled={testApiMutation.isPending} className="shrink-0">Test API</Button>
+                </div>
+                {apiMsg && <p className="text-xs text-text-secondary">{apiMsg}</p>}
+              </div>
+            </Section>
+          </div>
 
-        <div className="flex flex-col lg:border-l lg:border-divider/15 lg:pl-6">
-          <Section title="Telemetry">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-              <div>
-                <div className="text-[10px] tracking-widest uppercase text-text-secondary">Uptime</div>
-                <div className="text-base font-mono tabular-nums font-medium mt-1">{stats?.uptime ?? "Not running"}</div>
-              </div>
-              <div>
-                <div className="text-[10px] tracking-widest uppercase text-text-secondary">Last Decision</div>
-                <div className="text-base font-mono tabular-nums font-medium mt-1">{lastDecisionLabel}</div>
-              </div>
+          <div className="flex flex-col sm:border-l sm:border-divider/15 sm:pl-6">
+            <Section title="Telemetry">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                <div>
+                  <div className="text-[10px] tracking-widest uppercase text-text-secondary">Uptime</div>
+                  <div className="text-base font-mono tabular-nums font-medium mt-1">{stats?.uptime ?? "Not running"}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] tracking-widest uppercase text-text-secondary">Last Decision</div>
+                  <div className="text-base font-mono tabular-nums font-medium mt-1">{lastDecisionLabel}</div>
+                </div>
 
-              <div className="col-span-2">
-                <div className="text-[10px] tracking-widest uppercase text-text-secondary">Total Cycles</div>
-                <div className="text-3xl font-mono tabular-nums font-semibold text-accent mt-1">{stats?.total_cycles ?? 0}</div>
-              </div>
+                <div className="col-span-2">
+                  <div className="text-[10px] tracking-widest uppercase text-text-secondary">Total Cycles</div>
+                  <div className="text-3xl font-mono tabular-nums font-semibold text-accent mt-1">{stats?.total_cycles ?? 0}</div>
+                </div>
 
-              <div className="col-span-2 h-px bg-divider/15" />
+                <div className="col-span-2 h-px bg-divider/15" />
 
-              <div>
-                <div className="text-[10px] tracking-widest uppercase text-text-secondary">Approved Trades</div>
-                <div className="text-base font-mono tabular-nums font-medium text-success mt-1">{stats?.approved_trades ?? 0}</div>
+                <div>
+                  <div className="text-[10px] tracking-widest uppercase text-text-secondary">Approved Trades</div>
+                  <div className="text-base font-mono tabular-nums font-medium text-success mt-1">{stats?.approved_trades ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] tracking-widest uppercase text-text-secondary">Rejected / Vetoed</div>
+                  <div className="text-base font-mono tabular-nums font-medium text-warning mt-1">{stats?.rejected_cycles ?? 0}</div>
+                </div>
               </div>
-              <div>
-                <div className="text-[10px] tracking-widest uppercase text-text-secondary">Rejected / Vetoed</div>
-                <div className="text-base font-mono tabular-nums font-medium text-warning mt-1">{stats?.rejected_cycles ?? 0}</div>
+            </Section>
+          </div>
+
+          <div className="flex flex-col sm:col-span-2">
+            <Section title="Performance">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <StatTile
+                  label="Total P&L"
+                  value={`${pnlTotal >= 0 ? "+" : ""}$${pnlTotal.toFixed(2)}`}
+                  tone={pnlTotal > 0 ? "success" : pnlTotal < 0 ? "warning" : "primary"}
+                />
+                <StatTile label="Closed" value={`${pnl?.closed_count ?? 0} (${pnl?.win_count ?? 0}W)`} />
+                <StatTile label="Open" value={String(pnl?.open_count ?? 0)} />
+                <StatTile label="Unrealized" value={`${(pnl?.unrealized_pnl ?? 0) >= 0 ? "+" : ""}$${(pnl?.unrealized_pnl ?? 0).toFixed(2)}`} tone={(pnl?.unrealized_pnl ?? 0) >= 0 ? "success" : "warning"} />
               </div>
-            </div>
-          </Section>
+            </Section>
+          </div>
         </div>
 
         <div className="flex flex-col lg:border-l lg:border-divider/15 lg:pl-6">
@@ -218,16 +252,23 @@ export default function ControlsPage({ onStatusMessage }: { onStatusMessage: (ms
               <StatusDot live={running} color={running ? "success" : "error"} />
               <span className={`font-mono font-medium tracking-wide ${running ? "text-success" : "text-error"}`}>{running ? "RUNNING" : "STOPPED"}</span>
             </p>
-            <p className="text-[11px] font-mono text-text-disabled mb-3 h-4">{running && status?.pid ? `pid ${status.pid}` : ""}</p>
+            <p className="text-[11px] font-mono text-text-disabled mb-1 h-4">{running && status?.pid ? `pid ${status.pid}` : ""}</p>
+            {status?.circuit_breaker_tripped && (
+              <p className="text-xs text-error mb-2">Circuit breaker tripped — repeated failures, check Logs. Fix the issue, then Start again.</p>
+            )}
+            {!status?.circuit_breaker_tripped && !!status?.auto_restart_count && (
+              <p className="text-xs text-warning mb-2">Auto-restarted {status.auto_restart_count}x — {status.last_crash_reason ?? "check Logs for details"}</p>
+            )}
             <div className="flex flex-col gap-3">
-              <div className="flex flex-col gap-1.5">
-                <TextField label="Symbols" mono value={form.symbols} onChange={(e) => set("symbols", e.target.value)} placeholder="SPY,QQQ" />
-                <Button onClick={() => loadWatchlistMutation.mutate()} disabled={loadWatchlistMutation.isPending} className="self-start">Load Curated Watchlist</Button>
-              </div>
-              <Select label="Track" value={form.track} onChange={(e) => set("track", e.target.value as FlatConfig["track"])}>
-                {TRACKS.map((t) => <option key={t} value={t}>{TRACK_LABELS[t]}</option>)}
-              </Select>
-              <TextField label="Interval (seconds)" mono value={form.interval_seconds} onChange={(e) => set("interval_seconds", e.target.value)} />
+              <SymbolPicker value={form.symbols} onChange={(csv) => set("symbols", csv)} categories={watchlist?.categories ?? {}} />
+              {SHOW_INTERVAL && (
+                <div className="flex flex-col gap-1.5">
+                  <TextField label="Interval (seconds)" mono value={form.interval_seconds} onChange={(e) => set("interval_seconds", e.target.value)} />
+                  {Number(form.interval_seconds) < 60 && (
+                    <p className="text-xs text-warning">Minimum is 60s — the engine will reject anything lower.</p>
+                  )}
+                </div>
+              )}
               <Button onClick={() => testAlpacaMutation.mutate()} disabled={testAlpacaMutation.isPending} className="self-start">Test Alpaca Connection</Button>
               {alpacaMsg && <p className="text-xs text-text-secondary">{alpacaMsg}</p>}
             </div>

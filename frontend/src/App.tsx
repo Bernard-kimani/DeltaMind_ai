@@ -9,7 +9,10 @@ import BacktestPage from "./features/backtest/BacktestPage";
 import LogsPage from "./features/logs/LogsPage";
 import LandingPage from "./features/landing/LandingPage";
 
-const TABS = ["Controls", "Strategies", "Backtest", "Logs"] as const;
+// Track 1 and Track 4 each get their own Controls tab, locked to that track
+// (see ControlsPage's `track` prop) — one running localhost, two independent
+// panels, so testing both doesn't require two dev server instances.
+const TABS = ["Track 1", "Track 4", "Strategies", "Backtest", "Logs"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function App() {
@@ -18,7 +21,7 @@ export default function App() {
   // "loading the url" and "entering the console" stay two distinct steps
   // every time, not just on a fresh session.
   const [view, setView] = useState<"landing" | "app">("landing");
-  const [tab, setTab] = useState<Tab>("Controls");
+  const [tab, setTab] = useState<Tab>("Track 1");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => (localStorage.getItem("deltamind_theme") === "light" ? "light" : "dark"));
   const [statusMessage, setStatusMessage] = useState("Ready");
@@ -28,13 +31,20 @@ export default function App() {
     localStorage.setItem("deltamind_theme", theme);
   }, [theme]);
 
-  const { data: status } = useQuery({
-    queryKey: ["engine-status"],
-    queryFn: () => api.getEngineStatus(),
+  // Header ticker/footer dot reflect either engine — both tracks share this
+  // one running instance now, so "live" means at least one loop is active.
+  const { data: status1 } = useQuery({
+    queryKey: ["engine-status", "track1_alpha_spreads"],
+    queryFn: () => api.getEngineStatus("track1_alpha_spreads"),
+    refetchInterval: 3000,
+  });
+  const { data: status4 } = useQuery({
+    queryKey: ["engine-status", "track4_income_wheel"],
+    queryFn: () => api.getEngineStatus("track4_income_wheel"),
     refetchInterval: 3000,
   });
 
-  const running = status?.is_running ?? false;
+  const running = (status1?.is_running ?? false) || (status4?.is_running ?? false);
 
   if (view === "landing") {
     return <LandingPage onEnter={() => setView("app")} />;
@@ -81,7 +91,8 @@ export default function App() {
       <div className={`h-px shrink-0 transition-colors duration-700 ${running ? "bg-accent" : "bg-divider/15"}`} />
 
       <main className="flex-1 overflow-auto p-6">
-        {tab === "Controls" && <ControlsPage onStatusMessage={setStatusMessage} />}
+        {tab === "Track 1" && <ControlsPage track="track1_alpha_spreads" onStatusMessage={setStatusMessage} />}
+        {tab === "Track 4" && <ControlsPage track="track4_income_wheel" onStatusMessage={setStatusMessage} />}
         {tab === "Strategies" && <StrategiesPage onStatusMessage={setStatusMessage} />}
         {tab === "Backtest" && <BacktestPage onStatusMessage={setStatusMessage} />}
         {tab === "Logs" && <LogsPage onStatusMessage={setStatusMessage} />}

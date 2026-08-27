@@ -73,8 +73,8 @@ export function Select({ label, className = "", children, ...props }: SelectHTML
   return (
     <label className="flex flex-col gap-1.5 text-sm">
       {label && <span className="text-[11px] tracking-[0.08em] uppercase text-text-secondary">{label}</span>}
-      <span className="relative inline-block">
-        <select {...props} className={`${fieldBase} appearance-none pr-8 cursor-pointer ${className}`}>
+      <span className="relative block w-full">
+        <select {...props} className={`${fieldBase} w-full appearance-none pr-8 cursor-pointer ${className}`}>
           {children}
         </select>
         <svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-text-secondary" width="10" height="6" viewBox="0 0 10 6" fill="none">

@@ -63,6 +63,8 @@ def _defaults() -> dict[str, Any]:
             "symbols": "SPY,QQQ",
             "track": "track1_alpha_spreads",
             "interval_seconds": "300",
+            "sentiment_threshold": "0.5",
+            "volume_ratio_min": "1.2",
         },
     }
 
@@ -77,6 +79,8 @@ def _flatten(nested: dict[str, Any]) -> dict[str, Any]:
         "symbols": nested["engine"]["symbols"],
         "track": nested["engine"]["track"],
         "interval_seconds": nested["engine"]["interval_seconds"],
+        "sentiment_threshold": nested["engine"]["sentiment_threshold"],
+        "volume_ratio_min": nested["engine"]["volume_ratio_min"],
     }
 
 
@@ -93,6 +97,8 @@ def _unflatten(flat: dict[str, Any]) -> dict[str, Any]:
             "symbols": flat["symbols"],
             "track": flat["track"],
             "interval_seconds": flat["interval_seconds"],
+            "sentiment_threshold": flat["sentiment_threshold"],
+            "volume_ratio_min": flat["volume_ratio_min"],
         },
     }
 
@@ -137,3 +143,58 @@ def reset() -> dict[str, Any]:
     if _STORE_PATH.exists():
         os.remove(_STORE_PATH)
     return load()
+
+
+# --- Engine run-state (for auto-resume after a backend restart) ---
+#
+# One file per track (Track 1 and Track 4 run as independent concurrent
+# subprocesses — see agent_loop_manager.py) — deliberately separate from the
+# encrypted config store above: this holds no secrets (just the args each
+# loop was started with), and it's written on every start/stop rather than
+# only on an explicit "Save Changes" — conflating the two would mean an
+# auto-resume write could clobber unsaved edits in the Controls form.
+_RUN_STATE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _run_state_path(track: str) -> Path:
+    return _RUN_STATE_DIR / f".engine_run_state_{track}.json"
+
+
+def save_engine_run_state(track: str, symbols: str, interval_seconds: int, sentiment_threshold: float, volume_ratio_min: float) -> None:
+    with open(_run_state_path(track), "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "symbols": symbols,
+                "interval_seconds": interval_seconds,
+                "sentiment_threshold": sentiment_threshold,
+                "volume_ratio_min": volume_ratio_min,
+            },
+            f,
+        )
+
+
+def load_engine_run_state(track: str) -> dict[str, Any] | None:
+    path = _run_state_path(track)
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        logger.exception("Failed to load run-state for track %s", track)
+        return None
+
+
+def clear_engine_run_state(track: str) -> None:
+    path = _run_state_path(track)
+    if path.exists():
+        os.remove(path)
+
+
+def list_tracks_with_run_state() -> list[str]:
+    """Used by main.py's startup hook to know which tracks to auto-resume,
+    without hardcoding a track list here."""
+    tracks = []
+    for path in _RUN_STATE_DIR.glob(".engine_run_state_*.json"):
+        tracks.append(path.stem.removeprefix(".engine_run_state_"))
+    return tracks

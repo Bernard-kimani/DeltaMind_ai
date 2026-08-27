@@ -7,13 +7,18 @@ long strangles/straddles (buying cheap vol); IV_P > 85 favors iron condors
 (selling rich vol, capturing post-event IV crush).
 """
 
-from app.db.repository import get_iv_52wk_range
+from app.db.repository import get_iv_52wk_range, record_iv_observation
 
 
 def compute_iv_percentile(symbol: str, option_chain: list[dict]) -> float:
     current_iv = _atm_iv(option_chain)
     if current_iv is None:
         return 0.0
+
+    # Runs unconditionally for every track's every cycle — self-populates a
+    # real IV history table over time (see get_iv_52wk_range), replacing
+    # what used to be a permanent hardcoded (0.10, 0.90) placeholder.
+    record_iv_observation(symbol, current_iv)
 
     iv_min, iv_max = get_iv_52wk_range(symbol)
     if iv_max <= iv_min:

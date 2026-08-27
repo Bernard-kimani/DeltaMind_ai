@@ -9,6 +9,7 @@ able to read this file top-to-bottom and verify the guardrails hold.
 
 from app.agents.state import AgentState
 from app.config import get_settings
+from app.quant.news_calendar import check_news_blackout
 from app.quant.risk_metrics import sector_exposure_pct
 from app.strategies._common import net_debit_credit
 from app.watchlist import SECTOR_MAP
@@ -20,6 +21,14 @@ def run(state: AgentState) -> dict:
     order = state.get("proposed_order")
     if not order:
         return {"risk_approved": False, "risk_rejection_reason": "no order proposed"}
+
+    # Backstop, not the primary gate (see graph.py's news_blackout_gate,
+    # the first node in the whole cycle) — catches a cycle that started
+    # clear of a red-folder release but whose LLM call ran long enough to
+    # drift across the blackout window's boundary before reaching here.
+    blocked, blackout_reason = check_news_blackout()
+    if blocked:
+        return {"risk_approved": False, "risk_rejection_reason": f"news blackout: {blackout_reason}"}
 
     if not order.get("symbol") or not order.get("legs"):
         return {"risk_approved": False, "risk_rejection_reason": "invalid order structure"}
@@ -37,11 +46,15 @@ def run(state: AgentState) -> dict:
     position_notional = abs(order.get("capital_at_risk", net_debit_credit(order["legs"])))
     position_pct = (position_notional / equity) if equity else 1.0
 
-    if position_pct > settings.max_position_pct:
+    # Track 4's cash-secured-put collateral is posted cash, not capital-at-
+    # risk the way every other track's capital_at_risk is (premium paid, or
+    # net debit) — a separate, higher cap applies (see config.py).
+    position_cap = settings.max_wheel_collateral_pct if state["track"] == "track4_income_wheel" else settings.max_position_pct
+    if position_pct > position_cap:
         return {
             "risk_approved": False,
             "risk_rejection_reason": (
-                f"position size {position_pct:.1%} exceeds max {settings.max_position_pct:.0%}"
+                f"position size {position_pct:.1%} exceeds max {position_cap:.0%}"
             ),
         }
 

@@ -1,0 +1,92 @@
+# Render Blueprint — prep-only, not yet deployed.
+#
+# This file has NOT been applied to a live Render service. It exists so a
+# deploy is a "New Blueprint" click away when the team is ready to cut over,
+# ahead of the Aug 28 hackathon start (see docs/deployment.md for the full
+# cutover checklist).
+#
+# NOTE on the free Postgres plan below: Render's free Postgres instances
+# expire ~30 days after creation and are deleted. Fine for prep/testing, but
+# switch `plan:` to a paid tier (e.g. basic-256mb) before/at the point this
+# needs to stay up reliably through the hackathon window.
+
+databases:
+  - name: deltamind-db
+    databaseName: deltamind
+    user: deltamind
+    plan: free
+    region: oregon
+
+services:
+  - name: deltamind-backend
+    type: web
+    runtime: docker
+    # NOT free — Render's free web-service tier spins the container down
+    # after 15 minutes with no inbound HTTP request. This app's actual job
+    # (agent_loop_manager.py's subprocess running a live Alpaca websocket
+    # stream + trading loop) produces no inbound HTTP traffic of its own —
+    # a free-tier spin-down would silently kill live trading mid-session
+    # with nothing to wake it back up until someone happens to hit the
+    # frontend again. `starter` (or higher) never sleeps.
+    plan: starter
+    region: oregon
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    envVars:
+      # ---- Database ----
+      # Swapped from the local sqlite:///./deltamind.db default to the
+      # managed Postgres instance below — zero code changes needed, see
+      # app/config.py / backend/pyproject.toml's `postgres` extra.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: deltamind-db
+          property: connectionString
+
+      # ---- Alpaca ----
+      - key: ALPACA_API_KEY
+        sync: false
+      - key: ALPACA_SECRET_KEY
+        sync: false
+      # Track 4's separate paper account — leave both unset in the Render
+      # dashboard until that second account exists; get_alpaca_credentials
+      # falls back to the shared pair above with zero code changes either way.
+      - key: ALPACA_API_KEY_TRACK4
+        sync: false
+      - key: ALPACA_SECRET_KEY_TRACK4
+        sync: false
+      - key: ALPACA_PAPER
+        value: "true"
+      - key: ALPACA_TRADE_API_URL
+        value: https://paper-api.alpaca.markets
+      - key: ALPACA_DATA_API_URL
+        value: https://data.alpaca.markets
+
+      # ---- LLM ----
+      - key: LLM_PROVIDER
+        value: featherless
+      - key: LLM_MODEL
+        value: moonshotai/Kimi-K2-Instruct
+      - key: LLM_FALLBACK_MODEL
+        value: deepseek-ai/DeepSeek-V3
+      - key: FEATHERLESS_API_KEY
+        sync: false
+      - key: FEATHERLESS_BASE_URL
+        value: https://api.featherless.ai/v1
+      - key: FIREWORKS_API_KEY
+        sync: false
+      - key: FIREWORKS_BASE_URL
+        value: https://api.fireworks.ai/inference/v1
+      # Optional — only used if LLM_PROVIDER=anthropic (incurs API cost).
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # ---- App ----
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      # Set this to the deployed frontend's origin (Render Static Site or
+      # Vercel URL) once that's known — comma-separated if more than one.
+      - key: BACKEND_CORS_ORIGINS
+        sync: false

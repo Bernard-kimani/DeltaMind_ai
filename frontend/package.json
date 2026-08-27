@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:track1": "vite --mode track1 --port 5173",
+    "dev:track4": "vite --mode track4 --port 5174",
     "build": "tsc -b && vite build",
+    "build:track1": "tsc -b && vite build --mode track1",
+    "build:track4": "tsc -b && vite build --mode track4",
     "preview": "vite preview"
   },
   "dependencies": {

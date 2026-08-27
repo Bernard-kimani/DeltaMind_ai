@@ -1,6 +1,6 @@
 import type {
   Account, AgentDecision, BacktestResult, EngineStats, EngineStatus,
-  FlatConfig, LogStats, LogTailResponse, Position, TestResult, Trade,
+  FlatConfig, LogStats, LogTailResponse, Position, TestResult, Trade, TrackPnlSummary,
 } from "./types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -23,8 +23,9 @@ export const api = {
   // Account / positions / trades
   getAccount: () => getJSON<Account>("/api/account"),
   getPositions: () => getJSON<Position[]>("/api/positions"),
-  getTrades: (limit = 100) => getJSON<Trade[]>(`/api/trades?limit=${limit}`),
-  getDecisions: (limit = 100) => getJSON<AgentDecision[]>(`/api/trades/decisions?limit=${limit}`),
+  getTrades: (limit = 100, track?: string) => getJSON<Trade[]>(`/api/trades?limit=${limit}${track ? `&track=${track}` : ""}`),
+  getDecisions: (limit = 100, track?: string) => getJSON<AgentDecision[]>(`/api/trades/decisions?limit=${limit}${track ? `&track=${track}` : ""}`),
+  getPnlSummary: () => getJSON<TrackPnlSummary[]>("/api/trades/pnl-summary"),
 
   // Backtest
   runBacktest: (body: { symbol: string; track: string; start: string; end: string }) => postJSON<BacktestResult>("/api/backtest", body),
@@ -34,18 +35,19 @@ export const api = {
   saveConfig: (config: FlatConfig) => postJSON<FlatConfig>("/api/config", config),
   resetConfig: () => postJSON<FlatConfig>("/api/config/reset"),
   testLLM: (provider: string, model: string, apiKey: string) => postJSON<TestResult>("/api/config/test-llm", { provider, model, api_key: apiKey }),
-  testAlpaca: () => postJSON<TestResult>("/api/config/test-alpaca"),
+  testAlpaca: (track: string) => postJSON<TestResult>(`/api/config/test-alpaca?track=${track}`),
   getWatchlist: () => getJSON<{ csv: string; categories: Record<string, string[]> }>("/api/config/watchlist"),
 
-  // Agent engine lifecycle
-  getEngineStatus: () => getJSON<EngineStatus>("/api/engine/status"),
-  getEngineStats: () => getJSON<EngineStats>("/api/engine/stats"),
-  startEngine: (body: { symbols: string; track: string; interval_seconds: number }) => postJSON<{ ok: boolean; message: string }>("/api/engine/start", body),
-  stopEngine: () => postJSON<{ ok: boolean; message: string }>("/api/engine/stop"),
-  restartEngine: (body: { symbols: string; track: string; interval_seconds: number }) => postJSON<{ ok: boolean; message: string }>("/api/engine/restart", body),
+  // Agent engine lifecycle — Track 1 and Track 4 run as independent
+  // concurrent engines, so every call is scoped to one `track`.
+  getEngineStatus: (track: string) => getJSON<EngineStatus>(`/api/engine/status?track=${track}`),
+  getEngineStats: (track: string) => getJSON<EngineStats>(`/api/engine/stats?track=${track}`),
+  startEngine: (body: { symbols: string; track: string; interval_seconds: number; sentiment_threshold: number; volume_ratio_min: number }) => postJSON<{ ok: boolean; message: string }>("/api/engine/start", body),
+  stopEngine: (track: string) => postJSON<{ ok: boolean; message: string }>("/api/engine/stop", { track }),
+  restartEngine: (body: { symbols: string; track: string; interval_seconds: number; sentiment_threshold: number; volume_ratio_min: number }) => postJSON<{ ok: boolean; message: string }>("/api/engine/restart", body),
 
-  // Logs
-  tailLog: (offset: number) => getJSON<LogTailResponse>(`/api/logs/tail?offset=${offset}`),
-  getLogStats: () => getJSON<LogStats>("/api/logs/stats"),
-  clearLog: () => postJSON<{ new_offset: number }>("/api/logs/clear"),
+  // Logs — also scoped per track (separate log files)
+  tailLog: (track: string, offset: number) => getJSON<LogTailResponse>(`/api/logs/tail?track=${track}&offset=${offset}`),
+  getLogStats: (track: string) => getJSON<LogStats>(`/api/logs/stats?track=${track}`),
+  clearLog: (track: string) => postJSON<{ new_offset: number }>(`/api/logs/clear?track=${track}`),
 };

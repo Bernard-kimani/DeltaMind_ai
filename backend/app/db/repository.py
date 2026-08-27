@@ -7,7 +7,7 @@ import datetime as dt
 
 from sqlalchemy import func, select
 
-from app.db.models import AgentDecision, BacktestRun, Trade, WheelState
+from app.db.models import AgentDecision, BacktestRun, IVObservation, Trade, WheelState
 from app.db.session import get_session
 
 
@@ -35,9 +35,22 @@ def list_open_trades(track: str | None = None) -> list[dict]:
                 "order": r.order,
                 "result": r.result,
                 "thesis": r.thesis,
+                "tp1_triggered": bool(r.tp1_triggered),
             }
             for r in rows
         ]
+
+
+def mark_tp1_triggered(trade_id: int) -> None:
+    """Track 1 only: records that position_monitor.py's sweep already took
+    the tier-1 partial profit for this trade, so the next sweep treats the
+    remainder's stop as breakeven instead of the original stop-loss."""
+    with get_session() as session:
+        trade = session.get(Trade, trade_id)
+        if trade is None:
+            return
+        trade.tp1_triggered = True
+        session.commit()
 
 
 def close_trade(trade_id: int, realized_pnl: float) -> None:
@@ -58,6 +71,10 @@ def get_wheel_state(symbol: str) -> bool:
 
 
 def set_wheel_state(symbol: str, holds_shares: bool) -> None:
+    """Only touches holds_shares — cost_basis is managed separately (see
+    set_wheel_cost_basis) so this function's per-sweep boolean-sync fallback
+    (position_monitor.py's _sweep_track4_positions) never clobbers a
+    cost_basis set by the assignment-detection path in the same sweep."""
     with get_session() as session:
         row = session.get(WheelState, symbol)
         if row is None:
@@ -67,9 +84,31 @@ def set_wheel_state(symbol: str, holds_shares: bool) -> None:
         session.commit()
 
 
-def list_trades(limit: int = 100) -> list[dict]:
+def get_wheel_cost_basis(symbol: str) -> float | None:
     with get_session() as session:
-        rows = session.scalars(select(Trade).order_by(Trade.created_at.desc()).limit(limit)).all()
+        row = session.get(WheelState, symbol)
+        return row.cost_basis if row else None
+
+
+def set_wheel_cost_basis(symbol: str, cost_basis: float | None) -> None:
+    """Set at assignment (strike - premium collected); cleared (None) once
+    shares are called away — see position_monitor.py's
+    _sweep_track4_positions."""
+    with get_session() as session:
+        row = session.get(WheelState, symbol)
+        if row is None:
+            session.add(WheelState(symbol=symbol, holds_shares=cost_basis is not None, cost_basis=cost_basis))
+        else:
+            row.cost_basis = cost_basis
+        session.commit()
+
+
+def list_trades(limit: int = 100, track: str | None = None) -> list[dict]:
+    with get_session() as session:
+        query = select(Trade)
+        if track is not None:
+            query = query.where(Trade.track == track)
+        rows = session.scalars(query.order_by(Trade.created_at.desc()).limit(limit)).all()
         return [
             {
                 "id": r.id,
@@ -84,17 +123,46 @@ def list_trades(limit: int = 100) -> list[dict]:
         ]
 
 
+def get_track_pnl_summary() -> list[dict]:
+    """Realized P&L, win rate, and open/closed counts per track — backs the
+    Controls tab's Track P&L card. Aggregated in Python rather than SQL
+    (small row count for a week-long hackathon test, and avoids a
+    dialect-specific conditional-sum for the win-rate count)."""
+    with get_session() as session:
+        rows = session.scalars(select(Trade)).all()
+
+    by_track: dict[str, dict] = {}
+    for r in rows:
+        if r.track is None:
+            continue
+        bucket = by_track.setdefault(r.track, {"track": r.track, "realized_pnl": 0.0, "open_count": 0, "closed_count": 0, "win_count": 0})
+        if r.status == "open":
+            bucket["open_count"] += 1
+        elif r.status == "closed":
+            bucket["closed_count"] += 1
+            # realized_pnl can be None: position_monitor.py records a
+            # "reconciled externally" close (leg vanished outside our own
+            # close flow) with no recoverable P&L — exclude, don't zero-fill.
+            if r.realized_pnl is not None:
+                bucket["realized_pnl"] += r.realized_pnl
+                if r.realized_pnl > 0:
+                    bucket["win_count"] += 1
+
+    return list(by_track.values())
+
+
 def save_agent_decision(**kwargs) -> None:
     with get_session() as session:
         session.add(AgentDecision(**kwargs))
         session.commit()
 
 
-def list_agent_decisions(limit: int = 100) -> list[dict]:
+def list_agent_decisions(limit: int = 100, track: str | None = None) -> list[dict]:
     with get_session() as session:
-        rows = session.scalars(
-            select(AgentDecision).order_by(AgentDecision.created_at.desc()).limit(limit)
-        ).all()
+        query = select(AgentDecision)
+        if track is not None:
+            query = query.where(AgentDecision.track == track)
+        rows = session.scalars(query.order_by(AgentDecision.created_at.desc()).limit(limit)).all()
         return [
             {
                 "id": r.id,
@@ -111,15 +179,17 @@ def list_agent_decisions(limit: int = 100) -> list[dict]:
         ]
 
 
-def get_decision_counts() -> dict:
+def get_decision_counts(track: str | None = None) -> dict:
     """Telemetry numbers for the Controls tab — total cycles run, trades
     the risk gate approved, cycles it rejected/vetoed, and the most recent
-    decision's timestamp."""
+    decision's timestamp. Track 1 and Track 4 run as independent concurrent
+    engines with independent telemetry, so `track` scopes to just one."""
     with get_session() as session:
-        total = session.scalar(select(func.count()).select_from(AgentDecision)) or 0
-        approved = session.scalar(select(func.count()).where(AgentDecision.risk_approved.is_(True))) or 0
-        rejected = session.scalar(select(func.count()).where(AgentDecision.risk_approved.is_(False))) or 0
-        last_created = session.scalar(select(func.max(AgentDecision.created_at)))
+        filters = (AgentDecision.track == track,) if track is not None else ()
+        total = session.scalar(select(func.count()).select_from(AgentDecision).where(*filters)) or 0
+        approved = session.scalar(select(func.count()).select_from(AgentDecision).where(AgentDecision.risk_approved.is_(True), *filters)) or 0
+        rejected = session.scalar(select(func.count()).select_from(AgentDecision).where(AgentDecision.risk_approved.is_(False), *filters)) or 0
+        last_created = session.scalar(select(func.max(AgentDecision.created_at)).where(*filters))
         return {
             "total_cycles": total,
             "approved_trades": approved,
@@ -136,10 +206,33 @@ def save_backtest_run(symbol: str, track: str, start_date: str, end_date: str, r
         session.commit()
 
 
+_IV_PLACEHOLDER_RANGE = (0.10, 0.90)
+_IV_MIN_SAMPLES = 20
+_IV_LOOKBACK_DAYS = 365
+
+
+def record_iv_observation(symbol: str, iv: float) -> None:
+    """One row per cycle — see IVObservation's docstring. Called
+    unconditionally from iv_percentile.py's compute_iv_percentile (every
+    track, every cycle), so this table self-populates during normal use
+    rather than needing a separate backfill job."""
+    with get_session() as session:
+        session.add(IVObservation(symbol=symbol, iv=iv))
+        session.commit()
+
+
 def get_iv_52wk_range(symbol: str) -> tuple[float, float]:
-    """52-week IV min/max for iv_percentile.py. TODO: back this with a real
-    historical-IV table populated by backtest/data_loader.py; returns a
-    placeholder wide range until that's wired up so quant_engine.py doesn't
-    crash on a fresh DB.
-    """
-    return 0.10, 0.90
+    """Real 52-week (well, however much history exists so far, up to 365
+    days) IV min/max computed from observed cycles — see record_iv_observation.
+    Falls back to a documented placeholder range until at least
+    _IV_MIN_SAMPLES observations exist for this symbol, rather than
+    computing a percentile against a handful of noisy early samples."""
+    cutoff = dt.datetime.utcnow() - dt.timedelta(days=_IV_LOOKBACK_DAYS)
+    with get_session() as session:
+        ivs = session.scalars(
+            select(IVObservation.iv).where(IVObservation.symbol == symbol, IVObservation.observed_at >= cutoff)
+        ).all()
+
+    if len(ivs) < _IV_MIN_SAMPLES:
+        return _IV_PLACEHOLDER_RANGE
+    return min(ivs), max(ivs)

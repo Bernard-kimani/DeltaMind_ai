@@ -2,8 +2,10 @@
 
 Runs one LangGraph decision cycle per watched symbol every INTERVAL_SECONDS,
 persists the full decision trail (including rejections) via
-app.db.repository, and logs every cycle to logs/agent_loop.log in the format
-the dashboard's Logs tab parses (see app/api/routes_logs.py).
+app.db.repository, and logs every cycle to logs/agent_loop_{track}.log (one
+file per track — Track 1 and Track 4 run as independent concurrent
+subprocesses) in the format the dashboard's Logs tab parses (see
+app/api/routes_logs.py).
 
 Usage:
     uv run python scripts/run_agent_loop.py --symbols SPY,QQQ --track track1_alpha_spreads --interval 300
@@ -14,6 +16,7 @@ the Day 1 hackathon deploy — see PLAN.md > Setup > Day 1 checklist.
 """
 
 import argparse
+import ctypes
 import logging
 import sys
 import time
@@ -23,16 +26,41 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-LOG_FILE = BACKEND_DIR / "logs" / "agent_loop.log"
+from app.rate_limits import CIRCUIT_BREAKER_EXIT_CODE, CONSECUTIVE_FAILED_PASSES_THRESHOLD, MIN_INTERVAL_SECONDS  # noqa: E402
+
 logger = logging.getLogger("agent_loop")
 
 
-def _configure_logging() -> None:
-    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+def _log_file_for_track(track: str) -> Path:
+    """Track 1 and Track 4 run as independent concurrent subprocesses, each
+    with its own log file — must match agent_loop_manager.log_file_for_track
+    (deliberately duplicated, not imported, to keep this script decoupled
+    from the manager module that spawns it)."""
+    return BACKEND_DIR / "logs" / f"agent_loop_{track}.log"
+
+ES_CONTINUOUS = 0x80000000
+ES_SYSTEM_REQUIRED = 0x00000001
+
+
+def _prevent_sleep() -> None:
+    """Blocks Windows inactivity sleep (not a manually closed lid) for as
+    long as this process is alive. Re-asserted once per pass per MSDN
+    guidance for long-running operations — cheap at a multi-minute cadence.
+    No-op (and safe to call) on non-Windows."""
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+    except Exception:
+        logger.exception("failed to set thread execution state (sleep prevention)")
+
+
+def _configure_logging(log_file: Path) -> None:
+    log_file.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8"), logging.StreamHandler(sys.stdout)],
+        handlers=[logging.FileHandler(log_file, encoding="utf-8"), logging.StreamHandler(sys.stdout)],
     )
 
 
@@ -45,13 +73,20 @@ def main() -> None:
         choices=["track1_alpha_spreads", "track2_volatility_events", "track3_hedging", "track4_income_wheel"],
     )
     parser.add_argument("--interval", type=int, default=300, help="seconds between cycles")
+    parser.add_argument("--sentiment-threshold", type=float, default=0.5, help="Track 1: |sentiment| must exceed this")
+    parser.add_argument("--volume-ratio-min", type=float, default=1.2, help="Track 1: breakout volume vs. its own average")
     args = parser.parse_args()
+
+    if args.interval < MIN_INTERVAL_SECONDS:
+        parser.error(f"--interval must be >= {MIN_INTERVAL_SECONDS} seconds")
+
+    log_file = _log_file_for_track(args.track)
 
     # Logging is configured — and writes its first line — before the heavy
     # imports below (LangGraph, alpaca-py, openai/anthropic SDKs take ~10s
     # cold). Without this ordering, the Logs tab looks dead for that whole
     # window instead of showing the process is alive and importing.
-    _configure_logging()
+    _configure_logging(log_file)
     symbols = [s.strip() for s in args.symbols.split(",")]
     logger.info("Agent loop process starting — symbols=%s track=%s interval=%ss", symbols, args.track, args.interval)
     logger.info("Importing agent graph and dependencies (LangGraph, Alpaca SDK, LLM clients)...")
@@ -59,10 +94,16 @@ def main() -> None:
     from app.agents.graph import run_cycle
     from app.agents.position_monitor import sweep_positions
     from app.db.repository import save_agent_decision
+    from app.llm.rate_limiter import LLMBudgetExceededError
 
     logger.info("Imports complete — entering live decision loop")
 
+    consecutive_failed_passes = 0
+
     while True:
+        _prevent_sleep()
+        pass_had_success = False
+
         try:
             # Runs once per full pass, before fresh entries are proposed —
             # a stop-loss/profit-take/assignment should be acted on before
@@ -75,7 +116,12 @@ def main() -> None:
 
         for symbol in symbols:
             try:
-                result = run_cycle(symbol=symbol, track=args.track)
+                result = run_cycle(
+                    symbol=symbol,
+                    track=args.track,
+                    sentiment_threshold=args.sentiment_threshold,
+                    volume_ratio_min=args.volume_ratio_min,
+                )
                 save_agent_decision(
                     symbol=symbol,
                     track=args.track,
@@ -85,14 +131,31 @@ def main() -> None:
                     risk_approved=result.get("risk_approved"),
                     risk_rejection_reason=result.get("risk_rejection_reason"),
                 )
-                if result.get("risk_approved"):
+                pass_had_success = True
+                if result.get("news_blackout_reason"):
+                    logger.info("[%s] BLOCKED — %s", symbol, result.get("news_blackout_reason"))
+                elif result.get("risk_approved"):
                     logger.info("[%s] TRADE — %s", symbol, result.get("thesis"))
                 elif result.get("risk_rejection_reason"):
                     logger.warning("[%s] REJECTED — %s", symbol, result.get("risk_rejection_reason"))
                 else:
                     logger.info("[%s] WAIT — no qualifying setup this cycle", symbol)
+            except LLMBudgetExceededError as exc:
+                logger.warning("[%s] LLM budget exceeded, skipping this cycle — %s", symbol, exc)
             except Exception:
                 logger.exception("[%s] cycle error", symbol)
+
+        if pass_had_success:
+            consecutive_failed_passes = 0
+        else:
+            consecutive_failed_passes += 1
+            logger.warning("full pass failed (every symbol errored) — %d/%d consecutive", consecutive_failed_passes, CONSECUTIVE_FAILED_PASSES_THRESHOLD)
+            if consecutive_failed_passes >= CONSECUTIVE_FAILED_PASSES_THRESHOLD:
+                logger.critical(
+                    "%d consecutive full-pass failures — stopping (likely a dead credential or persistent outage, not a transient blip)",
+                    consecutive_failed_passes,
+                )
+                sys.exit(CIRCUIT_BREAKER_EXIT_CODE)
 
         time.sleep(args.interval)
 

@@ -7,6 +7,7 @@ through mcp_client.py so every live order carries the MCP-tool-call paper
 trail the hackathon rewards.
 """
 
+import functools
 import logging
 from datetime import date, timedelta
 from functools import lru_cache, wraps
@@ -15,7 +16,7 @@ import requests
 from alpaca.data.historical.option import OptionHistoricalDataClient
 from alpaca.data.historical.stock import StockHistoricalDataClient
 from alpaca.data.requests import OptionChainRequest, StockBarsRequest
-from alpaca.data.timeframe import TimeFrame
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetStatus
 from alpaca.trading.requests import GetOptionContractsRequest
@@ -28,20 +29,64 @@ settings = get_settings()
 # Covers Track 1's 14 DTE and Track 4's 14-30 DTE with margin either side.
 CHAIN_DTE_WINDOW_DAYS = 45
 
+# alpaca-py's REST client (alpaca.common.rest.RESTClient._one_request) calls
+# self._session.request(...) with no `timeout` anywhere in its own code —
+# confirmed by reading that module directly, not assumed. A stalled/dead
+# connection (e.g. the same network blip that drops the market-data
+# websocket) can therefore hang for as long as the OS takes to notice a dead
+# socket — observed live on 2026-08-27: a single quant_engine cycle stalled
+# 39s this way, blowing Track 1's 2s candle-to-decision budget by 20x.
+# Patched onto each cached client's underlying `requests.Session` below
+# rather than forked/subclassed, since alpaca-py exposes no constructor
+# param for this at all.
+REST_TIMEOUT_SECONDS = 15
+
+# requests.Session()'s default HTTPAdapter caps at 10 pooled connections per
+# host (urllib3's pool_maxsize). market_ingestion.py's concurrent per-symbol
+# fetches all share these same cached clients (one requests.Session per
+# client, process-wide), and Track 1's websocket delivers every watched
+# symbol's bar-close within the same second — 15 symbols x up to 2-3
+# concurrent REST calls each can mean 30-45 simultaneous requests to
+# data.alpaca.markets against a 10-connection pool. Observed live on
+# 2026-08-27: "Connection pool is full, discarding connection" warnings on
+# nearly every bar close, each discarded connection forcing a fresh TCP+TLS
+# handshake on the next call — a single cycle's market_ingestion jumped from
+# the ~500-900ms baseline to 4100-4200ms, blowing the 2s latency budget.
+# Sized to comfortably cover the full 15-symbol watchlist at max concurrency
+# with headroom, not tuned to today's exact watchlist size.
+REST_POOL_MAXSIZE = 50
+
+
+def _with_default_timeout(client):
+    """Binds a default `timeout` onto `client._session.request` via
+    functools.partial — safe because alpaca-py's own `_one_request` never
+    passes `timeout` itself (confirmed by reading rest.py), so there's no
+    "got multiple values for keyword argument" collision. This is the only
+    way to enforce a timeout here at all: `_session` is a plain
+    `requests.Session()` with no per-call timeout hook exposed by the
+    client's public API. Also widens the session's connection pool (see
+    REST_POOL_MAXSIZE) — same "no constructor param for this" constraint
+    applies, so it's mounted directly onto the session's adapters."""
+    client._session.request = functools.partial(client._session.request, timeout=REST_TIMEOUT_SECONDS)
+    adapter = requests.adapters.HTTPAdapter(pool_maxsize=REST_POOL_MAXSIZE, pool_connections=REST_POOL_MAXSIZE)
+    client._session.mount("https://", adapter)
+    client._session.mount("http://", adapter)
+    return client
+
 
 @lru_cache
 def _trading_client() -> TradingClient:
-    return TradingClient(settings.alpaca_api_key, settings.alpaca_secret_key, paper=settings.alpaca_paper)
+    return _with_default_timeout(TradingClient(settings.alpaca_api_key, settings.alpaca_secret_key, paper=settings.alpaca_paper))
 
 
 @lru_cache
 def _stock_data_client() -> StockHistoricalDataClient:
-    return StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key)
+    return _with_default_timeout(StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key))
 
 
 @lru_cache
 def _option_data_client() -> OptionHistoricalDataClient:
-    return OptionHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key)
+    return _with_default_timeout(OptionHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key))
 
 
 def _retry_once_on_disconnect(fn):
@@ -50,15 +95,18 @@ def _retry_once_on_disconnect(fn):
     stale pooled keep-alive connection (idle socket closed server-side
     between calls, since _trading_client()/_option_data_client() are
     long-lived @lru_cache singletons for the process lifetime) surfaces as
-    a raw ConnectionError instead, uncaught by that retry loop. One
-    immediate retry is enough: the dead connection gets evicted from the
-    pool on failure, so the retry opens a fresh socket."""
+    a raw ConnectionError instead, uncaught by that retry loop. `Timeout`
+    (raised by REST_TIMEOUT_SECONDS above, a sibling exception class, not a
+    ConnectionError subclass) gets the same one-retry treatment — a fresh
+    connection after a bounded wait is much more likely to succeed than
+    hanging again. One immediate retry is enough: the dead/slow connection
+    gets evicted from the pool on failure, so the retry opens a fresh socket."""
     @wraps(fn)
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except requests.exceptions.ConnectionError:
-            logger.warning("%s: connection dropped, retrying once", fn.__name__)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            logger.warning("%s: %s, retrying once", fn.__name__, type(exc).__name__)
             return fn(*args, **kwargs)
     return wrapper
 
@@ -78,6 +126,18 @@ def get_all_positions() -> list[dict]:
 @_retry_once_on_disconnect
 def get_recent_bars(symbol: str, limit: int = 100) -> dict:
     request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Minute, limit=limit)
+    bars = _stock_data_client().get_stock_bars(request)
+    return bars.df.reset_index().to_dict(orient="records")
+
+
+@_retry_once_on_disconnect
+def get_15m_bars(symbol: str, limit: int = 60) -> list[dict]:
+    """Native 15-minute bars — used by technical_signals.check_track1_confluence's
+    50-period EMA trend check. Fetched directly rather than resampled from
+    get_recent_bars' 1-minute window: 500 1-minute bars only resample to
+    ~33 complete 15-minute candles, not enough to seed a stable 50-period
+    EMA; 60 native 15-minute bars covers it cleanly."""
+    request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame(15, TimeFrameUnit.Minute), limit=limit)
     bars = _stock_data_client().get_stock_bars(request)
     return bars.df.reset_index().to_dict(orient="records")
 
@@ -161,13 +221,23 @@ def get_option_chain(symbol: str) -> list[dict]:
     return flattened
 
 
-def test_connection() -> tuple[bool, str]:
+def test_connection(api_key: str | None = None, secret_key: str | None = None) -> tuple[bool, str]:
     """Backs the Controls tab's "Test Alpaca Connection" button — confirms
-    the credentials in `.env` actually authenticate against Alpaca."""
-    if not settings.alpaca_api_key or not settings.alpaca_secret_key:
+    the given (or default) credentials actually authenticate against
+    Alpaca. Explicit api_key/secret_key (see routes_config.py, which
+    resolves them per-track via get_alpaca_credentials) build a one-off,
+    uncached TradingClient rather than going through _trading_client()'s
+    process-wide @lru_cache singleton — that cache is deliberately keyed to
+    whichever single account the live trading subprocess itself uses, and
+    can't answer "test this OTHER account's key" from the same backend
+    process without a separate client instance."""
+    key = api_key if api_key is not None else settings.alpaca_api_key
+    secret = secret_key if secret_key is not None else settings.alpaca_secret_key
+    if not key or not secret:
         return False, "ALPACA_API_KEY / ALPACA_SECRET_KEY not set in .env"
     try:
-        account = _trading_client().get_account()
+        client = _trading_client() if api_key is None and secret_key is None else TradingClient(key, secret, paper=settings.alpaca_paper)
+        account = client.get_account()
         mode = "paper" if settings.alpaca_paper else "LIVE"
         return True, f"Connected ({mode}) — account {account.account_number}, equity ${account.equity}"
     except Exception as exc:

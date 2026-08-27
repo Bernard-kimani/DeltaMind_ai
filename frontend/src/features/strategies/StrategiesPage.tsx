@@ -1,4 +1,5 @@
 import { TRACKS, TRACK_LABELS, TRACK_SUMMARY } from "../../api/types";
+import { ACTIVE_TRACK } from "../../config";
 import { Card, Section } from "../../components/primitives";
 
 // Mirrors the constants at the top of each backend/app/strategies/track*.py
@@ -6,11 +7,17 @@ import { Card, Section } from "../../components/primitives";
 // these means editing the strategy module directly (see PLAN.md).
 const TRACK_PARAMS: Record<(typeof TRACKS)[number], { label: string; value: string }[]> = {
   track1_alpha_spreads: [
-    { label: "Long leg delta", value: "0.70Δ" },
-    { label: "Short leg delta", value: "0.30Δ" },
-    { label: "Target DTE", value: "14 days" },
-    { label: "Stop-loss", value: "30% of net debit" },
-    { label: "Entry trigger", value: "Breakout + |sentiment| > 0.75" },
+    { label: "Structure", value: "Single-leg long call/put" },
+    { label: "Target delta", value: "0.45–0.55Δ" },
+    { label: "Target DTE", value: "1–2 days" },
+    { label: "Position sizing", value: "3% of equity" },
+    { label: "Take-profit (tier 1)", value: "+50% (half, stop → breakeven)" },
+    { label: "Take-profit (tier 2)", value: "+100%, or 15m EMA(50) reversal" },
+    { label: "Stop-loss", value: "20% (clamped to platform ceiling)" },
+    { label: "Time-stop", value: "90 min if flat (±10%)" },
+    { label: "EOD liquidation", value: "3:45pm ET, unconditional" },
+    { label: "Entry trigger", value: "15m EMA(50) trend + 1m VWAP + RSI(14) band + 20-bar breakout + RVOL ≥ 1.5" },
+    { label: "LLM catalyst gate", value: "Verdict APPROVE, |sentiment| ≥ 0.50, confidence ≥ 70% (fixed)" },
   ],
   track2_volatility_events: [
     { label: "Strangle delta", value: "0.25Δ" },
@@ -26,44 +33,43 @@ const TRACK_PARAMS: Record<(typeof TRACKS)[number], { label: string; value: stri
     { label: "Stop-loss", value: "20%" },
   ],
   track4_income_wheel: [
-    { label: "CSP delta", value: "0.30Δ" },
-    { label: "Covered call delta", value: "0.30Δ" },
-    { label: "Target DTE", value: "14–30 days" },
-    { label: "Stop-loss", value: "20% of premium" },
+    { label: "Structure", value: "Cash-secured put ↔ covered call" },
+    { label: "Target delta (both legs)", value: "0.25–0.30Δ" },
+    { label: "Target DTE", value: "14–30 days (21 target)" },
+    { label: "Position sizing (CSP)", value: "25% wheel collateral cap" },
+    { label: "Entry gate (IV)", value: "IV percentile ≥ 45" },
+    { label: "Entry gate (CSP regime)", value: "Price > 200-day EMA + RSI(14) 35–55" },
+    { label: "Covered call floor", value: "Strike ≥ cost basis" },
+    { label: "Profit target", value: "+50% of premium, buy-to-close (fixed)" },
+    { label: "Stop-loss defense", value: "Cost to close = 3× premium AND 200-EMA broken" },
+    { label: "LLM risk-officer gate", value: "Verdict APPROVE, no earnings conflict, risk ≤ 0.35, confidence ≥ 70% (fixed)" },
   ],
 };
 
 export default function StrategiesPage({ onStatusMessage: _onStatusMessage }: { onStatusMessage: (msg: string) => void }) {
   return (
     <div className="flex flex-col gap-6">
-      <Section title="Hackathon Tracks">
-        <p className="text-sm text-text-secondary max-w-2xl mb-4">
-          All four tracks are implemented and share the same <code className="font-mono text-accent">propose_order(state, thesis)</code> interface
-          in <code className="font-mono text-text-primary">backend/app/strategies/</code> — switching which one the live agent runs is a config
-          change on the Controls tab, not a rewrite. See PLAN.md section 5 for the current track decision.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {TRACKS.map((t) => (
-            <Card key={t} className="p-4 flex flex-col gap-3">
-              <h3 className="text-sm font-semibold text-text-primary">{TRACK_LABELS[t]}</h3>
-              <p className="text-xs text-text-secondary leading-relaxed">{TRACK_SUMMARY[t].structure}</p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
-                <span className="text-text-disabled uppercase tracking-wide">Regime</span>
-                <span className="text-text-primary">{TRACK_SUMMARY[t].regime}</span>
-                <span className="text-text-disabled uppercase tracking-wide">Key metric</span>
-                <span className="text-text-primary">{TRACK_SUMMARY[t].metric}</span>
-              </div>
-              <div className="h-px bg-divider/15" />
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-                {TRACK_PARAMS[t].map((p) => (
-                  <div key={p.label} className="contents">
-                    <dt className="text-[11px] text-text-secondary">{p.label}</dt>
-                    <dd className="text-[11px] font-mono tabular-nums text-text-primary text-right">{p.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </Card>
-          ))}
+      <Section title="Strategy">
+        <div className="max-w-md">
+          <Card className="p-4 flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-text-primary">{TRACK_LABELS[ACTIVE_TRACK]}</h3>
+            <p className="text-xs text-text-secondary leading-relaxed">{TRACK_SUMMARY[ACTIVE_TRACK].structure}</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+              <span className="text-text-disabled uppercase tracking-wide">Regime</span>
+              <span className="text-text-primary">{TRACK_SUMMARY[ACTIVE_TRACK].regime}</span>
+              <span className="text-text-disabled uppercase tracking-wide">Key metric</span>
+              <span className="text-text-primary">{TRACK_SUMMARY[ACTIVE_TRACK].metric}</span>
+            </div>
+            <div className="h-px bg-divider/15" />
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+              {TRACK_PARAMS[ACTIVE_TRACK].map((p) => (
+                <div key={p.label} className="contents">
+                  <dt className="text-[11px] text-text-secondary">{p.label}</dt>
+                  <dd className="text-[11px] font-mono tabular-nums text-text-primary text-right">{p.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </Card>
         </div>
       </Section>
     </div>

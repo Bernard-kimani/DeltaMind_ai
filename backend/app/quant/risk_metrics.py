@@ -2,8 +2,10 @@
 drawdown trigger.
 """
 
+import concurrent.futures
+
 from app.alpaca.rest_client import get_account_info, get_all_positions
-from app.db.repository import get_wheel_state
+from app.db.repository import get_wheel_cost_basis, get_wheel_state
 
 
 def beta_weighted_delta(positions: list[dict], betas: dict[str, float]) -> float:
@@ -49,9 +51,18 @@ def portfolio_risk_snapshot(symbol: str | None = None) -> dict:
     """Live equity/margin/cash snapshot consumed by quant_engine.py ->
     risk_gate.py. `holds_underlying_shares` reflects `symbol`'s real wheel
     state (see position_monitor.py's `_sync_wheel_state` — the fix for the
-    gap where this was previously hardcoded unreachable-False)."""
-    account = get_account_info()
-    positions = get_all_positions()
+    gap where this was previously hardcoded unreachable-False).
+
+    account/positions are two independent Alpaca REST calls — fetched
+    concurrently rather than one after another (confirmed via graph.py's
+    per-node timing that this was a real chunk of quant_engine's latency
+    against Track 1's <2s candle-to-decision target, even after its own
+    bar fetches moved out to market_ingestion.py)."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        account_future = pool.submit(get_account_info)
+        positions_future = pool.submit(get_all_positions)
+        account = account_future.result()
+        positions = positions_future.result()
     equity = float(account.get("equity", 0))
     maintenance_margin = float(account.get("maintenance_margin", 0))
     return {
@@ -60,6 +71,9 @@ def portfolio_risk_snapshot(symbol: str | None = None) -> dict:
         "margin_utilization_pct": (maintenance_margin / equity) if equity else 0.0,
         "position_count": len(positions),
         "holds_underlying_shares": get_wheel_state(symbol) if symbol else False,
+        # Track 4 only: floors the next covered call's strike at or above
+        # this — see track4_income_wheel.py's propose_order().
+        "cost_basis": get_wheel_cost_basis(symbol) if symbol else None,
         # Threaded through for risk_gate.py's sector-concentration check
         # (sector_exposure_pct) — avoids a second get_all_positions() call
         # in the same cycle.
