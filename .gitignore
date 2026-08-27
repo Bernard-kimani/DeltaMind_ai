@@ -28,6 +28,9 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Logs
+# Logs (runtime trading-engine log files only — NOT frontend/src/features/logs/,
+# a real feature directory that a bare "logs/" rule silently excluded from git
+# entirely, passing local builds but failing Netlify's since it clones from
+# git rather than the local filesystem)
 *.log
-logs/
+backend/logs/
