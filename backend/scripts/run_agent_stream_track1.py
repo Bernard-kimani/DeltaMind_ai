@@ -38,6 +38,7 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from app.log_rotation import trim_log_file  # noqa: E402
 from app.rate_limits import CIRCUIT_BREAKER_EXIT_CODE, CONSECUTIVE_FAILED_PASSES_THRESHOLD  # noqa: E402
 
 logger = logging.getLogger("agent_stream_track1")
@@ -144,27 +145,43 @@ def main() -> None:
         pass (which has no external "candle updated" moment to time from).
         This is the number the sub-2-second goal is actually about — it
         includes asyncio.to_thread's own dispatch latency, unlike graph.py's
-        internal per-node timings."""
+        internal per-node timings.
+
+        Logs exactly ONE line per symbol per cycle (2026-08-27 log-volume
+        reduction — this used to be 5-8 lines per symbol: one per graph
+        node plus a separate "cycle internal total" plus this outcome line
+        plus a separate latency line). TRADE is logged at WARNING (not
+        INFO) so it survives the Logs tab's default WARNING-level filter —
+        once the pipeline's been confirmed working over hours of WAIT
+        cycles, what actually matters day-to-day is "did it trade" and
+        "is anything actually broken," not every no-op cycle's detail."""
         global _consecutive_failures
         try:
             result = _run_and_persist(symbol)
             with _failure_lock:
                 _consecutive_failures = 0
+
             if result.get("news_blackout_reason"):
-                logger.info("[%s] BLOCKED — %s", symbol, result.get("news_blackout_reason"))
+                outcome, detail, level = "BLOCKED", result.get("news_blackout_reason"), logging.INFO
             elif result.get("risk_approved"):
-                logger.info("[%s] TRADE — %s", symbol, result.get("thesis"))
+                outcome, detail, level = "TRADE", result.get("thesis"), logging.WARNING
             elif result.get("risk_rejection_reason"):
-                logger.warning("[%s] REJECTED — %s", symbol, result.get("risk_rejection_reason"))
+                outcome, detail, level = "REJECTED", result.get("risk_rejection_reason"), logging.WARNING
             else:
-                logger.info("[%s] WAIT — no qualifying setup this %s", symbol, label)
+                outcome, detail, level = "WAIT", f"no qualifying setup this {label}", logging.INFO
+
+            latency_note = ""
             if candle_close_at is not None:
                 total_ms = (time.monotonic() - candle_close_at) * 1000
                 over_budget = total_ms > LATENCY_BUDGET_MS
-                (logger.warning if over_budget else logger.info)(
-                    "[%s] candle-close-to-decision latency: %.0fms%s",
-                    symbol, total_ms, f" — EXCEEDS {LATENCY_BUDGET_MS:.0f}ms budget" if over_budget else "",
+                latency_note = f" | latency={total_ms:.0f}ms" + (
+                    f" EXCEEDS {LATENCY_BUDGET_MS:.0f}ms budget" if over_budget else ""
                 )
+                if over_budget:
+                    level = logging.WARNING
+
+            stages = " ".join(f"{name}={ms:.0f}ms" for name, ms in result.get("stage_timings_ms", {}).items())
+            logger.log(level, "[%s] %s — %s (%s)%s", symbol, outcome, detail, stages, latency_note)
         except LLMBudgetExceededError as exc:
             logger.warning("[%s] LLM budget exceeded, skipping this %s — %s", symbol, label, exc)
         except Exception:
@@ -235,6 +252,8 @@ def main() -> None:
                 logger.info("[%s] monitor: %s", action["symbol"], action["action"])
         except Exception:
             logger.exception("position monitor sweep failed")
+
+        trim_log_file(log_file)
 
         time.sleep(SWEEP_INTERVAL_SECONDS)
 

@@ -35,7 +35,13 @@ const LEVEL_STYLE: Record<(typeof LEVELS)[number], { text: string; row: string }
 
 export default function LogsPage({ onStatusMessage }: { onStatusMessage: (msg: string) => void }) {
   const [buffer, setBuffer] = useState<string[]>([]);
-  const [level, setLevel] = useState<(typeof LEVELS)[number]>("INFO");
+  // Defaults to WARNING, not INFO — 2026-08-27: once the pipeline's been
+  // confirmed working, day-to-day monitoring only needs TRADE (logged at
+  // WARNING specifically so it survives this default — see
+  // run_agent_stream_track1.py/run_agent_loop.py), REJECTED, and real
+  // errors, not every WAIT/BLOCKED no-op cycle. Still switchable back to
+  // INFO from the dropdown for full per-cycle detail.
+  const [level, setLevel] = useState<(typeof LEVELS)[number]>("WARNING");
   const [search, setSearch] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const offsetRef = useRef(0);

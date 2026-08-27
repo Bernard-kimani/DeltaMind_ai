@@ -64,3 +64,6 @@ class AgentState(TypedDict, total=False):
     # exactly where a cycle's latency went (data fetch vs. LLM vs. Alpaca
     # order placement) instead of only a single opaque total.
     stage_timings_ms: dict[str, float]
+    # Wall-clock time of the whole _compiled_graph.invoke() call, set by
+    # run_cycle() itself (not any node) — see graph.py.
+    cycle_total_ms: float

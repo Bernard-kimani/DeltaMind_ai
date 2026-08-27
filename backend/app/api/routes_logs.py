@@ -22,6 +22,15 @@ def tail(track: str, offset: int = 0) -> dict:
     if not log_file.exists():
         return {"lines": [], "new_offset": 0}
 
+    # log_rotation.py periodically trims old lines from the top of this
+    # file, shifting every later byte offset backward. A client polling
+    # faster than the trim cadence (LogsPage.tsx: 1s poll) will already be
+    # holding an offset at-or-near the pre-trim end of file, which the trim
+    # then leaves past the new (smaller) size — reset rather than getting
+    # stuck returning zero new lines forever.
+    if offset > log_file.stat().st_size:
+        offset = 0
+
     with open(log_file, encoding="utf-8", errors="replace") as f:
         f.seek(offset)
         content = f.read()

@@ -26,6 +26,7 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from app.log_rotation import trim_log_file  # noqa: E402
 from app.rate_limits import CIRCUIT_BREAKER_EXIT_CODE, CONSECUTIVE_FAILED_PASSES_THRESHOLD, MIN_INTERVAL_SECONDS  # noqa: E402
 
 logger = logging.getLogger("agent_loop")
@@ -132,14 +133,22 @@ def main() -> None:
                     risk_rejection_reason=result.get("risk_rejection_reason"),
                 )
                 pass_had_success = True
+
+                # One consolidated line per symbol per cycle (2026-08-27
+                # log-volume reduction — see graph.py's _timed docstring).
+                # TRADE at WARNING so it survives the Logs tab's default
+                # WARNING-level filter; WAIT/BLOCKED stay INFO, hidden by
+                # that default, visible if the level filter is widened.
                 if result.get("news_blackout_reason"):
-                    logger.info("[%s] BLOCKED — %s", symbol, result.get("news_blackout_reason"))
+                    outcome, detail, level = "BLOCKED", result.get("news_blackout_reason"), logging.INFO
                 elif result.get("risk_approved"):
-                    logger.info("[%s] TRADE — %s", symbol, result.get("thesis"))
+                    outcome, detail, level = "TRADE", result.get("thesis"), logging.WARNING
                 elif result.get("risk_rejection_reason"):
-                    logger.warning("[%s] REJECTED — %s", symbol, result.get("risk_rejection_reason"))
+                    outcome, detail, level = "REJECTED", result.get("risk_rejection_reason"), logging.WARNING
                 else:
-                    logger.info("[%s] WAIT — no qualifying setup this cycle", symbol)
+                    outcome, detail, level = "WAIT", "no qualifying setup this cycle", logging.INFO
+                stages = " ".join(f"{name}={ms:.0f}ms" for name, ms in result.get("stage_timings_ms", {}).items())
+                logger.log(level, "[%s] %s — %s (%s, total=%.0fms)", symbol, outcome, detail, stages, result.get("cycle_total_ms", 0.0))
             except LLMBudgetExceededError as exc:
                 logger.warning("[%s] LLM budget exceeded, skipping this cycle — %s", symbol, exc)
             except Exception:
@@ -157,6 +166,7 @@ def main() -> None:
                 )
                 sys.exit(CIRCUIT_BREAKER_EXIT_CODE)
 
+        trim_log_file(log_file)
         time.sleep(args.interval)
 
 

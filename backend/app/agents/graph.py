@@ -32,7 +32,6 @@ Run one cycle with `run_cycle(symbol, track)`. `backend/scripts/run_agent_loop.p
 on their own schedules for the live hackathon-week loop.
 """
 
-import logging
 import time
 from typing import Callable
 
@@ -42,23 +41,21 @@ from app.agents import execution, lead_architect, market_ingestion, news_analyst
 from app.agents.state import AgentState
 from app.strategies.track4_income_wheel import IV_PERCENTILE_FLOOR as WHEEL_IV_FLOOR
 
-logger = logging.getLogger(__name__)
-
 
 def _timed(name: str, fn: Callable[[AgentState], dict]) -> Callable[[AgentState], dict]:
-    """Wraps a node so every cycle logs where its latency actually went —
+    """Wraps a node to record its latency into state["stage_timings_ms"] —
     the target is sub-2-second candle-close-to-decision for Track 1, and a
     single opaque "cycle took 1400ms" line can't say whether that was the
-    REST data fetch, the LLM call, or placing the order with Alpaca. Logged
-    via the standard `logging` module into whichever log file the running
-    script already configured (see run_agent_stream_track1.py's/
-    run_agent_loop.py's _configure_logging) — same file the WAIT/TRADE line
-    already goes to, not a separate one."""
+    REST data fetch, the LLM call, or placing the order with Alpaca.
+    Deliberately does NOT log here (that used to mean 5-8 lines per symbol
+    per cycle, one per node) — run_agent_stream_track1.py/run_agent_loop.py
+    fold this same breakdown into the single consolidated line they already
+    log for the cycle's outcome (see their _stage_breakdown helper), per
+    the 2026-08-27 log-volume reduction."""
     def wrapper(state: AgentState) -> dict:
         t0 = time.monotonic()
         result = fn(state)
         elapsed_ms = (time.monotonic() - t0) * 1000
-        logger.info("[%s] %s: %.0fms", state.get("symbol", "?"), name, elapsed_ms)
         timings = {**state.get("stage_timings_ms", {}), name: elapsed_ms}
         return {**result, "stage_timings_ms": timings}
     return wrapper
@@ -138,14 +135,9 @@ def run_cycle(symbol: str, track: str, sentiment_threshold: float = 0.5, volume_
         "sentiment_threshold": sentiment_threshold,
         "volume_ratio_min": volume_ratio_min,
     })
-    graph_ms = (time.monotonic() - t0) * 1000
-    # graph_ms includes LangGraph's own routing/merge overhead between
-    # nodes, on top of the per-node stage_timings_ms sum below — both
-    # numbers are worth keeping since a gap between them means overhead
-    # outside any single node, not just noise.
-    stage_total_ms = sum(result.get("stage_timings_ms", {}).values())
-    logger.info(
-        "[%s] cycle internal total: %.0fms (stages: %.0fms, graph overhead: %.0fms)",
-        symbol, graph_ms, stage_total_ms, graph_ms - stage_total_ms,
-    )
+    # Includes LangGraph's own routing/merge overhead between nodes, on top
+    # of the per-node stage_timings_ms sum — not logged here directly (see
+    # _timed's docstring); callers fold this into their one consolidated
+    # per-cycle line instead of a separate "cycle internal total" line.
+    result["cycle_total_ms"] = (time.monotonic() - t0) * 1000
     return result
