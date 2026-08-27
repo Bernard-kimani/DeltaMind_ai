@@ -13,12 +13,15 @@ item (f) below before treating this as deploy-ready.
   `run_agent_loop.py`. Without this, every "Start engine" click on Render
   would have failed immediately (file not found) with no prior warning.
   Fixed.
-- `render.yaml`'s backend service was on the free plan, which spins the
-  container down after 15 minutes with no inbound HTTP request. This app's
-  actual workload (the live Alpaca websocket stream + trading subprocess)
-  generates no inbound HTTP traffic of its own — a free-tier sleep would
-  silently kill live trading mid-session with nothing to wake it back up
-  except a judge/user happening to hit the frontend. Changed to `starter`.
+- `render.yaml`'s backend service is on the free plan, which spins the
+  container down after 15 minutes with no *inbound HTTP request to this
+  service's own public URL*. The live Alpaca websocket stream is an
+  **outbound** connection this app makes — receiving bar data over it does
+  NOT count as inbound traffic and does NOT reset Render's idle timer, a
+  point worth being explicit about since it's an easy thing to assume
+  incorrectly. User's call (weighed against paying for Render's Starter
+  plan, which never sleeps): stay on free and run an external keep-alive
+  pinger instead — see (g).
 - Added `ALPACA_API_KEY_TRACK4`/`ALPACA_SECRET_KEY_TRACK4` as `sync: false`
   placeholders in `render.yaml`, matching `.env.example` — leave unset until
   the second paper account exists (falls back to the shared pair, same as
@@ -149,3 +152,35 @@ as a last-minute scramble — leave a buffer to debug things like the
 `DATABASE_URL` scheme question in (b), CORS origin mismatches, and the MCP
 server (`uvx alpaca-mcp-server`) actually launching correctly inside the
 container.
+
+## (g) Free-tier keep-alive (user's choice over paying for Starter)
+
+`render.yaml`'s backend stays on the free plan. To prevent the 15-minute
+idle spin-down from killing live trading, an **external** service must send
+a real HTTP request to the deployed backend's own public URL at least every
+~10 minutes — hitting `GET https://<your-service>.onrender.com/api/health`
+is enough (cheap, already exists, returns fast). Any of these work, pick
+whichever is easiest to set up with no card required:
+
+- **UptimeRobot** (free tier) — add an HTTP(s) monitor pointed at the
+  `/api/health` URL, interval 5 or 10 minutes.
+- **cron-job.org** (free) — same idea, a scheduled GET request.
+- **A scheduled GitHub Actions workflow** in this repo (`curl` the health
+  endpoint on a cron schedule) — keeps the keep-alive config in-repo instead
+  of a third-party dashboard, if preferred.
+
+Caveats to know going in, not surprises to discover later:
+
+- This rides on top of free-tier limits, not around them: still capped at
+  750 instance-hours/month per Render workspace, and Render's docs warn
+  free services can be suspended for "uncommonly high volume of traffic" —
+  a ping every 10 minutes is nowhere near that, but worth knowing the policy
+  exists.
+- A ping to `/api/health` only proves the FastAPI process itself is up and
+  responsive — it says nothing about whether `agent_loop_manager.py`'s
+  trading subprocess is still alive underneath it. Circuit-breaker trips,
+  crashes, and auto-restarts are still only visible via `/api/engine/status`
+  and the Logs tab; the keep-alive ping doesn't replace watching those.
+- Free Postgres (see (b)) expires ~30 days after creation regardless of this
+  — the keep-alive only addresses the web service sleeping, not the
+  database's separate free-tier expiry.

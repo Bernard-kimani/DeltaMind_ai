@@ -21,14 +21,14 @@ services:
   - name: deltamind-backend
     type: web
     runtime: docker
-    # NOT free — Render's free web-service tier spins the container down
-    # after 15 minutes with no inbound HTTP request. This app's actual job
-    # (agent_loop_manager.py's subprocess running a live Alpaca websocket
-    # stream + trading loop) produces no inbound HTTP traffic of its own —
-    # a free-tier spin-down would silently kill live trading mid-session
-    # with nothing to wake it back up until someone happens to hit the
-    # frontend again. `starter` (or higher) never sleeps.
-    plan: starter
+    # Free plan — deliberately kept free rather than paying for Starter.
+    # Free web services spin down after 15 minutes with NO INBOUND HTTP
+    # REQUEST to this service's own public URL — note this is unrelated to
+    # how often the Alpaca websocket stream (an outbound connection this app
+    # makes, not inbound traffic to it) delivers bar data internally. An
+    # external uptime pinger hitting /api/health on a <15min schedule is
+    # required to keep this awake continuously — see docs/deployment.md (g).
+    plan: free
     region: oregon
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
