@@ -17,9 +17,19 @@ frontend/.vite/
 .env.local
 *.pem
 backend/.runtime_config.json
+# Local runtime state (config_store.py) — records whether an engine was
+# running so it can auto-resume after a backend restart; per-machine, not
+# something a fresh clone or a different deploy (e.g. Render) should ever
+# inherit.
+backend/.engine_run_state_*.json
 
-# DB
+# DB — SQLite's -wal/-shm sidecar files churn on every single write, same
+# as the main .db file below, but *.db alone doesn't match "deltamind.db-wal"
+# (the extension there is literally ".db-wal", not ".db"), so they'd been
+# slipping through and getting committed.
 *.db
+*.db-wal
+*.db-shm
 *.sqlite3
 
 # OS / editor

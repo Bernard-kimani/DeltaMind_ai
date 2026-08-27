@@ -1,1 +1,0 @@
-{"symbols": "SPY,QQQ,IWM,NVDA,AAPL,MSFT,AMZN,GOOGL,META,TSLA,AMD,COIN,XLF,XLE,SMH", "interval_seconds": 300, "sentiment_threshold": 0.5, "volume_ratio_min": 1.2}
