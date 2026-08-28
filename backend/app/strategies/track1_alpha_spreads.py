@@ -34,7 +34,15 @@ DELTA_BAND = (0.45, 0.55)
 DTE_TARGET_DAYS = 2
 ACCEPTABLE_DTE = (1, 2)
 MIN_OPEN_INTEREST = 500
-MAX_SPREAD_PCT = 0.05
+# Was 0.05 (5%) -- found live on 2026-08-28 to silently reject nearly every
+# real, liquid contract: e.g. a genuinely tradeable near-the-money contract
+# (247+ open interest) with a normal $0.06 absolute bid/ask spread still
+# reads as an 11-12% spread_pct simply because the option itself is cheap.
+# Percentage-of-premium spread naturally runs wide on lower-dollar contracts
+# even when the absolute spread is perfectly normal -- 5% was calibrated
+# without checking against real quotes. 0.15 lets genuinely liquid
+# contracts like that through while still screening out truly wide/thin ones.
+MAX_SPREAD_PCT = 0.15
 
 # Fixed exit targets, read by position_monitor.py's sweep — not derived from
 # the LLM's take_profit_pct suggestion (kept in the LLM's schema for thesis

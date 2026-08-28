@@ -33,7 +33,12 @@ DELTA_BAND = (0.25, 0.30)
 DTE_TARGET_DAYS = 21
 ACCEPTABLE_DTE = (14, 30)
 MIN_OPEN_INTEREST = 500
-MAX_SPREAD_PCT = 0.05
+# Was 0.05 (5%) -- see track1_alpha_spreads.py's identical change for the
+# live finding: a genuinely liquid XLF put (247 OI, right at target delta)
+# had a perfectly normal $0.06 absolute bid/ask spread that still read as
+# 11.5% spread_pct simply because the contract itself is cheap. 5% silently
+# rejected nearly every real candidate checked. 0.15 lets those through.
+MAX_SPREAD_PCT = 0.15
 # "Elevated IV" per the spec, made concrete. Tightened from the original
 # scaffold's 50 to the spec's own 45.
 IV_PERCENTILE_FLOOR = 45
