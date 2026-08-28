@@ -32,7 +32,13 @@ from app.strategies._common import closest_by_delta
 TARGET_DELTA = 0.50
 DELTA_BAND = (0.45, 0.55)
 DTE_TARGET_DAYS = 2
-ACCEPTABLE_DTE = (1, 2)
+# Was (1, 2) -- a pure calendar-day window that's mathematically impossible
+# to satisfy on a Friday (no Saturday/Sunday expirations exist, so the
+# nearest listed ones are 0 DTE today or 3 DTE Monday) -- found live on
+# 2026-08-28. Widened to include 3 so the Friday-to-Monday case clears;
+# deliberately still excludes 0 DTE, which carries a meaningfully different
+# risk profile (much higher gamma) than this 1-2 DTE-intended strategy.
+ACCEPTABLE_DTE = (1, 3)
 MIN_OPEN_INTEREST = 500
 # Was 0.05 (5%) -- found live on 2026-08-28 to silently reject nearly every
 # real, liquid contract: e.g. a genuinely tradeable near-the-money contract
@@ -77,7 +83,13 @@ def propose_order(state: AgentState, llm_result: dict) -> dict | None:
     # rather than trade whatever it lands on (e.g. a single-stock name with
     # no near-dated expiration at all).
     dte = (contract["expiration_date"] - date.today()).days
-    if dte not in ACCEPTABLE_DTE:
+    # Range check, not membership -- `dte in ACCEPTABLE_DTE` only "worked" by
+    # coincidence for the old (1, 2) (two consecutive ints, so the tuple
+    # happened to equal the full range); it silently broke when widened to
+    # (1, 3), which would exclude dte==2 entirely. Matches
+    # track4_income_wheel.py's equivalent check, which was already written
+    # as a proper range.
+    if not (ACCEPTABLE_DTE[0] <= dte <= ACCEPTABLE_DTE[1]):
         return None
     actual_delta = abs(contract["greeks"]["delta"])
     if not (DELTA_BAND[0] <= actual_delta <= DELTA_BAND[1]):
