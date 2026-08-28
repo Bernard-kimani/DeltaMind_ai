@@ -84,6 +84,15 @@ def _stock_data_client() -> StockHistoricalDataClient:
     return _with_default_timeout(StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key))
 
 
+def get_stock_data_client() -> StockHistoricalDataClient:
+    """Public accessor for backend/app/backtest/historical_data.py — reuses
+    this module's cached, timeout-patched, retry-wrapped singleton instead
+    of backtest/data_loader.py's old pattern of building a fresh, uncached
+    client per call (no timeout, no retry, exactly the gaps this module's
+    live-path clients already closed)."""
+    return _stock_data_client()
+
+
 @lru_cache
 def _option_data_client() -> OptionHistoricalDataClient:
     return _with_default_timeout(OptionHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key))
