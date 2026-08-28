@@ -123,9 +123,22 @@ export interface LogStats {
   file_size_bytes: number;
 }
 
+export interface QualifyingEvent {
+  timestamp: string;
+  symbol: string;
+  direction: string | null;
+  detail: Record<string, unknown>;
+}
+
 export interface BacktestResult {
   trades: unknown[];
   total_pnl: number;
   win_rate: number;
   max_drawdown_pct: number;
+  total_bars_evaluated?: number;
+  qualified_count?: number;
+  qualification_rate?: number;
+  qualifying_events?: QualifyingEvent[];
+  qualification_by_month?: Record<string, { evaluated: number; qualified: number }>;
+  known_gaps?: string[];
 }
