@@ -98,28 +98,50 @@ def get_news(symbols: list[str], limit: int = 10) -> list[dict]:
 
 
 def place_option_order(
-    symbol: str,
-    legs: list[OptionLeg],
-    order_class: Literal["mleg", "simple"] = "mleg",
+    symbol: str | None = None,
+    side: Literal["buy", "sell"] | None = None,
+    legs: list[OptionLeg] | None = None,
+    order_class: Literal["mleg", "simple"] | None = None,
     order_type: Literal["market", "limit"] = "market",
     time_in_force: Literal["day", "gtc"] = "day",
     qty: float = 1,
     limit_price: float | None = None,
 ) -> dict:
-    """Single- or multi-leg options order. For a 2-leg debit spread (Track 1):
-    legs=[{"symbol": long_occ, "ratio_qty": 1, "side": "buy"},
-          {"symbol": short_occ, "ratio_qty": 1, "side": "sell"}]
+    """Single- or multi-leg options order.
+
+    True single-leg (Track 1): pass `symbol`/`side` at the top level, leave
+    `legs`/`order_class` as None -- confirmed live on 2026-08-28 against the
+    real alpaca-mcp-server source (overrides.py's place_option_order): a
+    `legs` array (even a 1-element one) makes the server's own
+    `is_multi_leg` check true regardless of what `order_class` string is
+    passed, and Alpaca's real API then rejects it ("either side or
+    position_intent must be set") since a `legs`-shaped body has no
+    top-level `side` for it to read. This was silently broken all week --
+    never exercised until a real order actually reached execution here.
+
+    Multi-leg (Track 2/3's spreads, if used): pass `legs` (each needs
+    `symbol`/`ratio_qty`/`side`) and `order_class="mleg"`; `symbol`/`side`
+    at the top level aren't needed for this case per the server's own docstring.
+
+    The MCP server's tool schema also requires qty/limit_price as strings,
+    not native int/float -- confirmed via a separate real pydantic
+    validation error while fixing this.
     """
     payload = {
-        "symbol": symbol,
-        "legs": legs,
-        "order_class": order_class,
         "type": order_type,
         "time_in_force": time_in_force,
-        "qty": qty,
+        "qty": str(qty),
     }
+    if symbol is not None:
+        payload["symbol"] = symbol
+    if side is not None:
+        payload["side"] = side
+    if legs is not None:
+        payload["legs"] = legs
+    if order_class is not None:
+        payload["order_class"] = order_class
     if limit_price is not None:
-        payload["limit_price"] = limit_price
+        payload["limit_price"] = str(limit_price)
     return _run(_call_tool("place_option_order", payload))
 
 

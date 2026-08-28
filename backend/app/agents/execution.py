@@ -23,11 +23,6 @@ from app.strategies._common import net_debit_credit
 def run(state: AgentState) -> dict:
     order = state["proposed_order"]
 
-    legs: list[OptionLeg] = [
-        {"symbol": leg["option_symbol"], "ratio_qty": leg["ratio_qty"], "side": leg["side"]}
-        for leg in order["legs"]
-    ]
-
     order_type = order.get("order_type", "market")
     limit_price = None
     if order_type == "limit":
@@ -36,14 +31,27 @@ def run(state: AgentState) -> dict:
         # option's premium, so convert back down.
         limit_price = round(net_debit_credit(order["legs"]) / 100, 2)
 
-    result = place_option_order(
-        symbol=order["symbol"],
-        legs=legs,
-        order_class="mleg" if len(legs) > 1 else "simple",
+    common_kwargs = dict(
         order_type=order_type,
         time_in_force=order.get("time_in_force", "day"),
         qty=order.get("qty", 1),
         limit_price=limit_price,
     )
+
+    if len(order["legs"]) == 1:
+        # True single-leg order (every live track today) -- top-level
+        # symbol/side, no `legs` array. See mcp_client.place_option_order's
+        # docstring for why: a non-None `legs` list (even one element) makes
+        # the MCP server treat this as multi-leg regardless of order_class,
+        # and Alpaca's real API then rejects it for lacking a top-level side.
+        leg = order["legs"][0]
+        result = place_option_order(symbol=leg["option_symbol"], side=leg["side"], **common_kwargs)
+    else:
+        legs: list[OptionLeg] = [
+            {"symbol": leg["option_symbol"], "ratio_qty": leg["ratio_qty"], "side": leg["side"]}
+            for leg in order["legs"]
+        ]
+        result = place_option_order(legs=legs, order_class="mleg", **common_kwargs)
+
     save_trade(symbol=state["symbol"], order=order, result=result, thesis=state.get("thesis", ""), track=state["track"])
     return {"execution_result": result}
