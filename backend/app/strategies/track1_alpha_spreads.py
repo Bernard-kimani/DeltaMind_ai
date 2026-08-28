@@ -118,7 +118,15 @@ def propose_order(state: AgentState, llm_result: dict) -> dict | None:
     return {
         "symbol": state["symbol"],
         "legs": legs,
-        "order_type": "limit",
+        # Was "limit" (priced at the fetched ask) -- for a breakout strategy,
+        # a passive limit resting at entry-time ask risks never filling if
+        # price keeps moving in the anticipated direction (confirmed live
+        # 2026-08-28: a SPY call limit at $2.13 sat unfilled while the ask
+        # ran to $3.22 as SPY continued up, missing the entire move). Market
+        # orders trade that price-control away for actually getting filled --
+        # the user's explicit call until backtest data suggests a specific
+        # limit-pricing approach is worth revisiting this for.
+        "order_type": "market",
         "time_in_force": "day",
         "qty": qty,
         # Read by position_monitor.py's TP2/runner exit check (a 15m EMA

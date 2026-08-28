@@ -118,7 +118,12 @@ def propose_order(state: AgentState, llm_result: dict) -> dict | None:
     return {
         "symbol": state["symbol"],
         "legs": legs,
-        "order_type": "limit",
+        # Was "limit" (priced at the fetched bid) -- same reasoning as
+        # track1_alpha_spreads.py's identical change: a passive limit risks
+        # never filling if the quote moves away before it's matched. Market
+        # orders trade price control away for actually getting filled, until
+        # backtest data suggests a specific limit-pricing approach.
+        "order_type": "market",
         "time_in_force": "day",
         "estimated_notional": estimate_notional(legs),
         "capital_at_risk": capital_at_risk,
