@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 EASTERN = ZoneInfo("America/New_York")
 EOD_LIQUIDATION_TIME = time(15, 45)
 TIME_STOP_FLAT_BAND_PCT = 0.10
+MIN_AGE_BEFORE_RECONCILE_MINUTES = 3  # grace window before a "no position found" is treated as gone rather than still-filling
 
 # Track 4 exit constants (see docs/tracks/track4_income_wheel.md §7).
 WHEEL_PROFIT_TARGET_PCT = 0.50  # option has decayed to 50% of collected premium — buy to close, deterministic, not LLM-tunable
@@ -92,6 +93,15 @@ def _sweep_track1_positions() -> list[dict]:
             # The position vanished from the account outside our own close
             # flow — expired, exercised, or manually closed. Reconcile the
             # DB rather than let it sit "open" forever with no way to recover.
+            # BUT: a freshly-submitted entry order can legitimately have no
+            # position yet (still filling) — confirmed live on 2026-08-28,
+            # this exact race orphaned a real position (the entry order
+            # filled a few seconds after this check ran, leaving a live
+            # position with no DB trade left to manage it). Give it a grace
+            # window before treating "no position" as "gone".
+            age_minutes = (datetime.utcnow() - datetime.fromisoformat(trade["created_at"])).total_seconds() / 60
+            if age_minutes < MIN_AGE_BEFORE_RECONCILE_MINUTES:
+                continue
             close_trade(trade["id"], realized_pnl=None)
             actions.append({"trade_id": trade["id"], "symbol": trade["symbol"], "action": "reconciled_closed_externally"})
             logger.warning("[%s] trade %s: option position missing from account, marking closed (no P&L recovered)", trade["symbol"], trade["id"])
@@ -130,7 +140,11 @@ def _sweep_track1_positions() -> list[dict]:
 
         if not tp1_triggered and pl_pct >= tp1_pct:
             half_qty = max(1, int(current_qty // 2))
-            _close_option(trade["symbol"], option_symbol, half_qty, "sell_to_close")
+            result = _close_option(trade["symbol"], option_symbol, half_qty, "sell_to_close")
+            if _order_rejected(result):
+                logger.error("[%s] trade %s: partial close REJECTED (%s) — retrying next sweep", trade["symbol"], trade["id"], result)
+                actions.append({"trade_id": trade["id"], "symbol": trade["symbol"], "action": "partial_close_failed", "reason": str(result)})
+                continue
             mark_tp1_triggered(trade["id"])
             actions.append({
                 "trade_id": trade["id"], "symbol": trade["symbol"], "action": "partial_close",
@@ -147,18 +161,45 @@ def _sweep_track1_positions() -> list[dict]:
     return actions
 
 
-def _close_full(trade: dict, option_symbol: str, qty: float, unrealized_pl: float, reason: str, actions: list[dict]) -> None:
-    _close_option(trade["symbol"], option_symbol, qty, "sell_to_close")
+def _close_full(trade: dict, option_symbol: str, qty: float, unrealized_pl: float, reason: str, actions: list[dict]) -> bool:
+    """Returns True if the close order actually went through. Caller must not
+    treat the trade as closed (nor record realized P&L) on a rejected order —
+    see _close_option's docstring for the bug this guards against."""
+    result = _close_option(trade["symbol"], option_symbol, qty, "sell_to_close")
+    if _order_rejected(result):
+        logger.error("[%s] trade %s: close order REJECTED (%s) — leaving open for retry next sweep", trade["symbol"], trade["id"], result)
+        actions.append({"trade_id": trade["id"], "symbol": trade["symbol"], "action": "close_failed", "reason": str(result)})
+        return False
     close_trade(trade["id"], realized_pnl=unrealized_pl)
     actions.append({"trade_id": trade["id"], "symbol": trade["symbol"], "action": "closed", "reason": reason, "realized_pnl": unrealized_pl})
     logger.info("[%s] closed trade %s — %s (realized P&L $%.2f)", trade["symbol"], trade["id"], reason, unrealized_pl)
+    return True
 
 
-def _close_option(symbol: str, option_symbol: str, qty: float, position_intent: str) -> None:
-    place_option_order(
-        symbol=symbol,
-        legs=[{"symbol": option_symbol, "ratio_qty": 1, "position_intent": position_intent}],
-        order_class="simple",
+def _order_rejected(result: dict) -> bool:
+    """True if Alpaca/the MCP server returned a structured error instead of
+    an accepted order. `place_option_order` only *raises* on an MCP
+    protocol-level error (see mcp_client._call_tool) — an HTTP-level
+    rejection from Alpaca's own API (e.g. a malformed order) comes back as a
+    normal, non-raising dict with an `error` key nested under `data`. Confirmed
+    live on 2026-08-28: `_close_option`'s old shape (a `legs` array with no
+    top-level `side`) got silently rejected this way on every single exit
+    attempt all week -- the DB was recording trades as closed (with a fake
+    realized_pnl snapshot) while the real option position stayed fully open."""
+    return bool((result or {}).get("data", {}).get("error"))
+
+
+def _close_option(symbol: str, option_symbol: str, qty: float, position_intent: str) -> dict:
+    """True single-leg close -- top-level symbol/side, no `legs` array. See
+    mcp_client.place_option_order's docstring (and _order_rejected above) for
+    why: a `legs` array, even one element, makes the MCP server treat this as
+    multi-leg regardless of order_class, and Alpaca's real API then rejects
+    it for lacking a top-level `side`. Mirrors execution.py's single-leg
+    entry-order fix, applied here to the exit path for the first time."""
+    side = "sell" if position_intent == "sell_to_close" else "buy"
+    return place_option_order(
+        symbol=option_symbol,
+        side=side,
         order_type="market",
         time_in_force="day",
         qty=qty,
@@ -232,7 +273,12 @@ def _sweep_track4_positions() -> list[dict]:
             else:
                 # No wheel_leg tag, or an otherwise-unexplained disappearance
                 # (manual close outside our own flow) — reconcile rather than
-                # let it sit "open" forever with no way to recover.
+                # let it sit "open" forever with no way to recover. Same grace
+                # window as track1's identical guard, for the same reason: a
+                # freshly-submitted entry can have no position yet.
+                age_minutes = (datetime.utcnow() - datetime.fromisoformat(trade["created_at"])).total_seconds() / 60
+                if age_minutes < MIN_AGE_BEFORE_RECONCILE_MINUTES:
+                    continue
                 close_trade(trade["id"], realized_pnl=None)
                 actions.append({"trade_id": trade["id"], "symbol": underlying, "action": "reconciled_closed_externally"})
                 logger.warning("[%s] trade %s: option position missing from account, marking closed (no P&L recovered)", underlying, trade["id"])
@@ -245,7 +291,11 @@ def _sweep_track4_positions() -> list[dict]:
             continue
 
         if pl_pct >= WHEEL_PROFIT_TARGET_PCT:
-            _close_option(underlying, option_symbol, qty, "buy_to_close")
+            result = _close_option(underlying, option_symbol, qty, "buy_to_close")
+            if _order_rejected(result):
+                logger.error("[%s] trade %s: profit-target close REJECTED (%s) — retrying next sweep", underlying, trade["id"], result)
+                actions.append({"trade_id": trade["id"], "symbol": underlying, "action": "close_failed", "reason": str(result)})
+                continue
             close_trade(trade["id"], realized_pnl=unrealized_pl)
             actions.append({"trade_id": trade["id"], "symbol": underlying, "action": "closed", "reason": f"profit target reached ({pl_pct:.0%})", "realized_pnl": unrealized_pl})
             logger.info("[%s] closed trade %s — profit target reached (%.0f%%, realized P&L $%.2f)", underlying, trade["id"], pl_pct * 100, unrealized_pl)
@@ -256,7 +306,11 @@ def _sweep_track4_positions() -> list[dict]:
             regime = check_wheel_put_regime(daily_bars)
             structure_broken = regime["qualified"] is False and regime["price_vs_200ema_pct"] < 0
             if structure_broken:
-                _close_option(underlying, option_symbol, qty, "buy_to_close")
+                result = _close_option(underlying, option_symbol, qty, "buy_to_close")
+                if _order_rejected(result):
+                    logger.error("[%s] trade %s: stop-loss-defense close REJECTED (%s) — retrying next sweep", underlying, trade["id"], result)
+                    actions.append({"trade_id": trade["id"], "symbol": underlying, "action": "close_failed", "reason": str(result)})
+                    continue
                 close_trade(trade["id"], realized_pnl=unrealized_pl)
                 actions.append({"trade_id": trade["id"], "symbol": underlying, "action": "closed", "reason": f"stop-loss defense (cost to close at {abs(pl_pct):.0%} of premium, 200-EMA support broken)", "realized_pnl": unrealized_pl})
                 logger.info("[%s] closed trade %s — stop-loss defense triggered (realized P&L $%.2f)", underlying, trade["id"], unrealized_pl)
