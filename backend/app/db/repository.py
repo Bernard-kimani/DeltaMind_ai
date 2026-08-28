@@ -7,7 +7,7 @@ import datetime as dt
 
 from sqlalchemy import func, select
 
-from app.db.models import AgentDecision, BacktestRun, IVObservation, Trade, WheelState
+from app.db.models import AgentDecision, BacktestRun, EngineRunState, IVObservation, Trade, WheelState
 from app.db.session import get_session
 
 
@@ -204,6 +204,52 @@ def save_backtest_run(symbol: str, track: str, start_date: str, end_date: str, r
             BacktestRun(symbol=symbol, track=track, start_date=start_date, end_date=end_date, results=results)
         )
         session.commit()
+
+
+def save_engine_run_state(track: str, symbols: str, interval_seconds: int, sentiment_threshold: float, volume_ratio_min: float) -> None:
+    """DB-backed replacement for config_store.py's local-JSON run-state —
+    see EngineRunState's docstring for why (Render free-tier container
+    restarts wipe local disk, but not the provisioned Postgres DB)."""
+    with get_session() as session:
+        row = session.get(EngineRunState, track)
+        if row is None:
+            session.add(EngineRunState(
+                track=track, symbols=symbols, interval_seconds=interval_seconds,
+                sentiment_threshold=sentiment_threshold, volume_ratio_min=volume_ratio_min,
+            ))
+        else:
+            row.symbols = symbols
+            row.interval_seconds = interval_seconds
+            row.sentiment_threshold = sentiment_threshold
+            row.volume_ratio_min = volume_ratio_min
+        session.commit()
+
+
+def load_engine_run_state(track: str) -> dict | None:
+    with get_session() as session:
+        row = session.get(EngineRunState, track)
+        if row is None:
+            return None
+        return {
+            "symbols": row.symbols,
+            "interval_seconds": row.interval_seconds,
+            "sentiment_threshold": row.sentiment_threshold,
+            "volume_ratio_min": row.volume_ratio_min,
+        }
+
+
+def clear_engine_run_state(track: str) -> None:
+    with get_session() as session:
+        row = session.get(EngineRunState, track)
+        if row is not None:
+            session.delete(row)
+            session.commit()
+
+
+def list_tracks_with_run_state() -> list[str]:
+    """Used by main.py's startup hook to know which tracks to auto-resume."""
+    with get_session() as session:
+        return list(session.scalars(select(EngineRunState.track)).all())
 
 
 _IV_PLACEHOLDER_RANGE = (0.10, 0.90)

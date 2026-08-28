@@ -95,6 +95,27 @@ class IVObservation(Base):
     iv: Mapped[float] = mapped_column(Float)
 
 
+class EngineRunState(Base):
+    """Durable "this track's engine should be running with these args"
+    record — replaces config_store.py's local .engine_run_state_{track}.json
+    files, which a Render free-tier container restart (redeploy/OOM/infra
+    recycle, no persistent disk) wipes silently. main.py's on_startup() reads
+    this table to know which tracks to auto-resume regardless of what caused
+    the restart, instead of depending on local disk having survived it.
+    One row per track (upserted on every start/stop), track itself as the
+    primary key — same get-or-create idiom as WheelState above.
+    """
+
+    __tablename__ = "engine_run_state"
+
+    track: Mapped[str] = mapped_column(String, primary_key=True)
+    symbols: Mapped[str] = mapped_column(String)
+    interval_seconds: Mapped[int] = mapped_column(Integer)
+    sentiment_threshold: Mapped[float] = mapped_column(Float)
+    volume_ratio_min: Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
+
+
 class BacktestRun(Base):
     __tablename__ = "backtest_runs"
 

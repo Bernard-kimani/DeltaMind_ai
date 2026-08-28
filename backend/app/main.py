@@ -11,9 +11,9 @@ from app.api import (
     routes_trades,
     ws,
 )
-from app import config_store
 from app.agent_loop_manager import get_manager
 from app.config import get_settings
+from app.db import repository as db_repo
 from app.db.session import init_db
 
 settings = get_settings()
@@ -43,7 +43,7 @@ def on_startup() -> None:
     init_db()
     # Track 1 and Track 4 run as independent concurrent engines — resume
     # whichever ones were running before this restart, not just one.
-    for track in config_store.list_tracks_with_run_state():
+    for track in db_repo.list_tracks_with_run_state():
         get_manager(track).auto_resume_if_needed()
 
 

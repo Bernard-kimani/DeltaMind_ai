@@ -35,8 +35,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app import config_store
 from app.config import get_alpaca_credentials
+from app.db import repository as db_repo
 from app.rate_limits import CIRCUIT_BREAKER_EXIT_CODE
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -137,14 +137,14 @@ class AgentLoopManager:
 
         ok, message = self._spawn(symbols, interval_seconds, sentiment_threshold, volume_ratio_min)
         if ok:
-            config_store.save_engine_run_state(self.track, symbols, interval_seconds, sentiment_threshold, volume_ratio_min)
+            db_repo.save_engine_run_state(self.track, symbols, interval_seconds, sentiment_threshold, volume_ratio_min)
         else:
             self._user_stopped = True
         return ok, message
 
     def stop(self) -> tuple[bool, str]:
         self._user_stopped = True
-        config_store.clear_engine_run_state(self.track)
+        db_repo.clear_engine_run_state(self.track)
 
         if not self.is_running():
             self.process = None
@@ -172,7 +172,7 @@ class AgentLoopManager:
         manual restart) while this track's engine was running, resumes
         trading with the same args instead of requiring the user to notice
         and click Start again."""
-        state = config_store.load_engine_run_state(self.track)
+        state = db_repo.load_engine_run_state(self.track)
         if state is None:
             return
         logger.info("[%s] auto-resuming agent engine after backend restart — %s", self.track, state)
