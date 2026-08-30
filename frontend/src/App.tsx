@@ -6,13 +6,16 @@ import { StatusDot } from "./components/primitives";
 import ControlsPage from "./features/controls/ControlsPage";
 import StrategiesPage from "./features/strategies/StrategiesPage";
 import BacktestPage from "./features/backtest/BacktestPage";
+import PerformancePage from "./features/performance/PerformancePage";
 import LogsPage from "./features/logs/LogsPage";
 import LandingPage from "./features/landing/LandingPage";
 
 // Track 1 and Track 4 each get their own Controls tab, locked to that track
 // (see ControlsPage's `track` prop) — one running localhost, two independent
 // panels, so testing both doesn't require two dev server instances.
-const TABS = ["Track 1", "Track 4", "Strategies", "Backtest", "Logs"] as const;
+// Performance covers both tracks itself via an in-page toggle instead of two
+// more top-level tabs.
+const TABS = ["Track 1", "Track 4", "Performance", "Strategies", "Backtest", "Logs"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function App() {
@@ -93,6 +96,7 @@ export default function App() {
       <main className="flex-1 overflow-auto p-6">
         {tab === "Track 1" && <ControlsPage track="track1_alpha_spreads" onStatusMessage={setStatusMessage} />}
         {tab === "Track 4" && <ControlsPage track="track4_income_wheel" onStatusMessage={setStatusMessage} />}
+        {tab === "Performance" && <PerformancePage onStatusMessage={setStatusMessage} />}
         {tab === "Strategies" && <StrategiesPage onStatusMessage={setStatusMessage} />}
         {tab === "Backtest" && <BacktestPage onStatusMessage={setStatusMessage} />}
         {tab === "Logs" && <LogsPage onStatusMessage={setStatusMessage} />}

@@ -1,6 +1,6 @@
 import type {
   Account, AgentDecision, BacktestResult, EngineStats, EngineStatus,
-  FlatConfig, LogStats, LogTailResponse, Position, TestResult, Trade, TrackPnlSummary,
+  FlatConfig, LogStats, LogTailResponse, PerformanceMetrics, Position, TestResult, Trade, TrackPnlSummary,
 } from "./types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -24,8 +24,9 @@ export const api = {
   getAccount: () => getJSON<Account>("/api/account"),
   getPositions: () => getJSON<Position[]>("/api/positions"),
   getTrades: (limit = 100, track?: string) => getJSON<Trade[]>(`/api/trades?limit=${limit}${track ? `&track=${track}` : ""}`),
-  getDecisions: (limit = 100, track?: string) => getJSON<AgentDecision[]>(`/api/trades/decisions?limit=${limit}${track ? `&track=${track}` : ""}`),
+  getDecisions: (limit = 100, track?: string, llmOnly = false) => getJSON<AgentDecision[]>(`/api/trades/decisions?limit=${limit}${track ? `&track=${track}` : ""}${llmOnly ? "&llm_only=true" : ""}`),
   getPnlSummary: () => getJSON<TrackPnlSummary[]>("/api/trades/pnl-summary"),
+  getPerformance: (track: string) => getJSON<PerformanceMetrics>(`/api/performance?track=${track}`),
 
   // Backtest
   runBacktest: (body: { symbol: string; track: string; start: string; end: string }) => postJSON<BacktestResult>("/api/backtest", body),

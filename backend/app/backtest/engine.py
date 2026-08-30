@@ -70,6 +70,14 @@ class BacktestResult:
     qualifying_events: list[GateQualificationEvent] = field(default_factory=list)
     qualification_by_month: dict[str, dict] = field(default_factory=dict)
     known_gaps: list[str] = field(default_factory=list)
+    # Lightweight (one point/day, not one per bar) series for the frontend's
+    # price chart -- a full 1-minute bar series over a 5-month window would be
+    # ~100k points per symbol, far too much to ship to the browser. Track 1
+    # resamples its 1m bars down to one close per calendar day; Track 4's
+    # bars are daily already, so this is just its reporting-window slice
+    # (excluding the 200-day EMA warmup runway).
+    daily_prices: list[dict] = field(default_factory=list)
+    qualifying_dates: list[str] = field(default_factory=list)
 
 
 def _record(result: BacktestResult, ts_iso: str, symbol: str, qualified: bool, direction: str | None, detail: dict) -> None:
@@ -107,9 +115,13 @@ def _run_track1(symbol: str, start: dt.datetime, end: dt.datetime, result: Backt
         return
 
     fifteen_ts = [b["timestamp"] for b in bars_15m]
+    daily_close_by_date: dict[str, float] = {}
+    qualifying_dates: set[str] = set()
     j = 0
     for i in range(needed_1m - 1, len(bars_1m)):
         current_ts = bars_1m[i]["timestamp"]
+        date_str = _ts_iso(current_ts)[:10]
+        daily_close_by_date[date_str] = bars_1m[i]["close"]
         while j < len(fifteen_ts) and fifteen_ts[j] <= current_ts:
             j += 1
         window_15m = bars_15m[max(0, j - TRACK1_15M_WINDOW):j]
@@ -118,6 +130,11 @@ def _run_track1(symbol: str, start: dt.datetime, end: dt.datetime, result: Backt
         window_1m = bars_1m[max(0, i - TRACK1_1M_WINDOW + 1):i + 1]
         signal = check_track1_confluence(window_1m, window_15m)
         _record(result, _ts_iso(current_ts), symbol, signal["qualified"], signal.get("direction"), dict(signal))
+        if signal["qualified"]:
+            qualifying_dates.add(date_str)
+
+    result.daily_prices = [{"date": d, "close": c} for d, c in sorted(daily_close_by_date.items())]
+    result.qualifying_dates = sorted(qualifying_dates)
 
 
 def _run_track4(symbol: str, start: dt.datetime, end: dt.datetime, result: BacktestResult) -> None:
@@ -135,10 +152,19 @@ def _run_track4(symbol: str, start: dt.datetime, end: dt.datetime, result: Backt
     daily_ts = [b["timestamp"] for b in daily_bars]
     start_idx = next((i for i, ts in enumerate(daily_ts) if ts >= start), len(daily_ts))
 
+    daily_close_by_date: dict[str, float] = {}
+    qualifying_dates: set[str] = set()
     for i in range(max(start_idx, WHEEL_EMA_PERIOD - 1), len(daily_bars)):
         window = daily_bars[max(0, i - TRACK4_DAILY_WINDOW + 1):i + 1]
         signal = check_wheel_put_regime(window)
-        _record(result, _ts_iso(daily_ts[i]), symbol, signal["qualified"], None, dict(signal))
+        date_str = _ts_iso(daily_ts[i])[:10]
+        daily_close_by_date[date_str] = daily_bars[i]["close"]
+        _record(result, date_str, symbol, signal["qualified"], None, dict(signal))
+        if signal["qualified"]:
+            qualifying_dates.add(date_str)
+
+    result.daily_prices = [{"date": d, "close": c} for d, c in sorted(daily_close_by_date.items())]
+    result.qualifying_dates = sorted(qualifying_dates)
 
 
 def run(symbol: str, track: str, start: str, end: str) -> BacktestResult:

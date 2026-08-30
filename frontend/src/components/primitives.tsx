@@ -85,10 +85,10 @@ export function Select({ label, className = "", children, ...props }: SelectHTML
   );
 }
 
-export function StatTile({ label, value, tone = "primary" }: { label: string; value: string; tone?: "primary" | "success" | "warning" | "accent" }) {
+export function StatTile({ label, value, tone = "primary", square = false }: { label: string; value: string; tone?: "primary" | "success" | "warning" | "accent"; square?: boolean }) {
   const toneClass = { primary: "text-text-primary", success: "text-success", warning: "text-warning", accent: "text-accent" }[tone];
   return (
-    <Card className="p-3.5">
+    <Card square={square} className="p-3.5">
       <div className="text-[10px] tracking-widest uppercase text-text-secondary">{label}</div>
       <div className={`text-base font-mono tabular-nums font-medium mt-1.5 ${toneClass}`}>{value}</div>
     </Card>

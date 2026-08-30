@@ -13,9 +13,9 @@ def trades(limit: int = 100, track: str | None = None):
 
 
 @router.get("/decisions")
-def decisions(limit: int = 100, track: str | None = None):
+def decisions(limit: int = 100, track: str | None = None, llm_only: bool = False):
     """Agent reasoning trail: thesis, signals, and risk-gate verdicts per cycle."""
-    return list_agent_decisions(limit=limit, track=track)
+    return list_agent_decisions(limit=limit, track=track, llm_only=llm_only)
 
 
 @router.get("/pnl-summary")

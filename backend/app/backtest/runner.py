@@ -19,6 +19,8 @@ def run_backtest(symbol: str, track: str, start: str, end: str) -> dict:
         "qualifying_events": [vars(e) for e in result.qualifying_events],
         "qualification_by_month": result.qualification_by_month,
         "known_gaps": result.known_gaps,
+        "daily_prices": result.daily_prices,
+        "qualifying_dates": result.qualifying_dates,
     }
     save_backtest_run(symbol=symbol, track=track, start_date=start, end_date=end, results=results_dict)
     return results_dict

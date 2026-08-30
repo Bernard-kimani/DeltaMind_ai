@@ -108,6 +108,34 @@ export interface TrackPnlSummary {
   matched_open_positions: number;
 }
 
+export interface PnlPoint {
+  date: string;
+  cumulative_pnl: number;
+  trade_pnl: number;
+  symbol: string;
+}
+
+export interface CompletedTrade {
+  id: number;
+  symbol: string;
+  closed_at: string;
+  realized_pnl: number;
+  thesis: string | null;
+}
+
+export interface PerformanceMetrics {
+  cumulative_pnl_series: PnlPoint[];
+  sharpe_ratio: number | null;
+  profit_factor: number | null;
+  recovery_factor: number | null;
+  max_drawdown: number;
+  net_realized_pnl: number;
+  closed_count: number;
+  open_count: number;
+  recent_completed_trades: CompletedTrade[];
+  known_gaps: string[];
+}
+
 export interface TestResult {
   ok: boolean;
   message: string;
@@ -141,4 +169,6 @@ export interface BacktestResult {
   qualifying_events?: QualifyingEvent[];
   qualification_by_month?: Record<string, { evaluated: number; qualified: number }>;
   known_gaps?: string[];
+  daily_prices?: { date: string; close: number }[];
+  qualifying_dates?: string[];
 }

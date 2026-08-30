@@ -7,6 +7,7 @@ from app.api import (
     routes_config,
     routes_engine,
     routes_logs,
+    routes_performance,
     routes_positions,
     routes_trades,
     ws,
@@ -31,6 +32,7 @@ app.add_middleware(
 app.include_router(routes_account.router, prefix="/api/account", tags=["account"])
 app.include_router(routes_positions.router, prefix="/api/positions", tags=["positions"])
 app.include_router(routes_trades.router, prefix="/api/trades", tags=["trades"])
+app.include_router(routes_performance.router, prefix="/api/performance", tags=["performance"])
 app.include_router(routes_backtest.router, prefix="/api/backtest", tags=["backtest"])
 app.include_router(routes_config.router, prefix="/api/config", tags=["config"])
 app.include_router(routes_engine.router, prefix="/api/engine", tags=["engine"])

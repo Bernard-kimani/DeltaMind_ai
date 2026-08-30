@@ -151,17 +151,109 @@ def get_track_pnl_summary() -> list[dict]:
     return list(by_track.values())
 
 
+def get_performance_metrics(track: str) -> dict:
+    """Cumulative realized-P&L series + trade-level risk/return ratios for
+    the Performance page. Deliberately per-CLOSED-TRADE, not per-day: there's
+    no regular daily portfolio-value snapshot anywhere in this app to
+    compute a standard daily-returns Sharpe ratio against (same class of gap
+    as the backtest engine's own known_gaps) — these are the one-level-down
+    approximations a trade-log-only system can actually support, labeled as
+    such in `known_gaps` rather than presented as the textbook versions.
+
+    `profit_factor`/`recovery_factor` return None (not float('inf')) when
+    the denominator is zero — Python's json module happily emits a literal
+    `Infinity` token, which is not valid JSON and breaks `JSON.parse` in the
+    browser.
+    """
+    with get_session() as session:
+        rows = session.scalars(
+            select(Trade).where(Trade.track == track).order_by(Trade.created_at.asc())
+        ).all()
+
+    closed = [r for r in rows if r.status == "closed" and r.realized_pnl is not None]
+    open_count = sum(1 for r in rows if r.status == "open")
+
+    cumulative_series = []
+    running = 0.0
+    for r in closed:
+        running += r.realized_pnl
+        cumulative_series.append({
+            "date": (r.closed_at or r.created_at).isoformat(),
+            "cumulative_pnl": running,
+            "trade_pnl": r.realized_pnl,
+            "symbol": r.symbol,
+        })
+
+    pnls = [r.realized_pnl for r in closed]
+    gross_profit = sum(p for p in pnls if p > 0)
+    gross_loss = abs(sum(p for p in pnls if p < 0))
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
+
+    sharpe_ratio = None
+    if len(pnls) >= 2:
+        mean = sum(pnls) / len(pnls)
+        variance = sum((p - mean) ** 2 for p in pnls) / (len(pnls) - 1)
+        std = variance ** 0.5
+        if std > 0:
+            sharpe_ratio = (mean / std) * (len(pnls) ** 0.5)
+
+    peak = 0.0
+    max_drawdown = 0.0
+    for point in cumulative_series:
+        peak = max(peak, point["cumulative_pnl"])
+        max_drawdown = max(max_drawdown, peak - point["cumulative_pnl"])
+
+    net_realized_pnl = cumulative_series[-1]["cumulative_pnl"] if cumulative_series else 0.0
+    recovery_factor = (net_realized_pnl / max_drawdown) if max_drawdown > 0 else None
+
+    known_gaps = (
+        ["Sharpe ratio, profit factor, and recovery factor are computed per CLOSED TRADE, not from a daily equity curve — "
+         "there's no regular daily portfolio-value snapshot to compute a standard daily-returns Sharpe against."]
+        if closed else
+        ["No closed trades yet for this track — these ratios need at least a couple of closed trades before they mean anything."]
+    )
+
+    return {
+        "cumulative_pnl_series": cumulative_series,
+        "sharpe_ratio": sharpe_ratio,
+        "profit_factor": profit_factor,
+        "recovery_factor": recovery_factor,
+        "max_drawdown": max_drawdown,
+        "net_realized_pnl": net_realized_pnl,
+        "closed_count": len(closed),
+        "open_count": open_count,
+        "recent_completed_trades": [
+            {"id": r.id, "symbol": r.symbol, "closed_at": (r.closed_at or r.created_at).isoformat(), "realized_pnl": r.realized_pnl, "thesis": r.thesis}
+            for r in reversed(closed[-10:])
+        ],
+        "known_gaps": known_gaps,
+    }
+
+
 def save_agent_decision(**kwargs) -> None:
     with get_session() as session:
         session.add(AgentDecision(**kwargs))
         session.commit()
 
 
-def list_agent_decisions(limit: int = 100, track: str | None = None) -> list[dict]:
+def list_agent_decisions(limit: int = 100, track: str | None = None, llm_only: bool = False) -> list[dict]:
+    """`llm_only` excludes cycles that never reached the LLM validator at all
+    (quant_engine.py's technical/IV gate said no qualifying setup — see
+    graph.py's conditional edge). Filtered on `thesis IS NOT NULL`, not
+    sentiment_score: track1_validator.py always sets both, but
+    track4_validator.py's schema has no sentiment_score field at all (it
+    returns risk_score instead) — sentiment_score would be None for every
+    real Track 4 LLM decision too, silently hiding all of them. `thesis`
+    defaults to `""` (not None) in BOTH validators' return dicts whenever
+    they actually run, so its presence is the one track-agnostic signal.
+    Without this filter, routine per-minute WAITs (no signal to reason
+    about yet) can outnumber genuine LLM verdicts 50-to-1 in the history."""
     with get_session() as session:
         query = select(AgentDecision)
         if track is not None:
             query = query.where(AgentDecision.track == track)
+        if llm_only:
+            query = query.where(AgentDecision.thesis.is_not(None))
         rows = session.scalars(query.order_by(AgentDecision.created_at.desc()).limit(limit)).all()
         return [
             {
