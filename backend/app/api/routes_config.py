@@ -29,18 +29,18 @@ class TestLLMRequest(BaseModel):
 
 
 @router.get("")
-def get_config() -> dict:
-    return config_store.load()
+def get_config(track: str = "track1_alpha_spreads") -> dict:
+    return config_store.load(track)
 
 
 @router.post("")
 def save_config(body: FlatConfig) -> dict:
-    return config_store.save(body.model_dump())
+    return config_store.save(body.model_dump(), body.track)
 
 
 @router.post("/reset")
-def reset_config() -> dict:
-    return config_store.reset()
+def reset_config(track: str = "track1_alpha_spreads") -> dict:
+    return config_store.reset(track)
 
 
 @router.post("/test-llm")

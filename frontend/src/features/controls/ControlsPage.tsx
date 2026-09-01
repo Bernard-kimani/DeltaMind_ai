@@ -31,7 +31,7 @@ export default function ControlsPage({ track, onStatusMessage }: { track: Track;
   const [apiMsg, setApiMsg] = useState<string | null>(null);
   const [alpacaMsg, setAlpacaMsg] = useState<string | null>(null);
 
-  const { data: config } = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
+  const { data: config } = useQuery({ queryKey: ["config", track], queryFn: () => api.getConfig(track) });
   const { data: status } = useQuery({ queryKey: ["engine-status", track], queryFn: () => api.getEngineStatus(track), refetchInterval: 3000 });
   const { data: stats } = useQuery({ queryKey: ["engine-stats", track], queryFn: () => api.getEngineStats(track), refetchInterval: status?.is_running ? 2000 : 5000 });
   const { data: positions } = useQuery({ queryKey: ["positions"], queryFn: api.getPositions, refetchInterval: 5000 });
@@ -45,10 +45,10 @@ export default function ControlsPage({ track, onStatusMessage }: { track: Track;
 
   const saveMutation = useMutation({
     mutationFn: () => api.saveConfig(form),
-    onSuccess: () => { setDirty(false); onStatusMessage("Configuration saved"); qc.invalidateQueries({ queryKey: ["config"] }); },
+    onSuccess: () => { setDirty(false); onStatusMessage("Configuration saved"); qc.invalidateQueries({ queryKey: ["config", track] }); },
   });
   const resetMutation = useMutation({
-    mutationFn: api.resetConfig,
+    mutationFn: () => api.resetConfig(track),
     onSuccess: (cfg) => { setForm(cfg); setDirty(false); onStatusMessage("Configuration reset to defaults"); },
   });
   const discardChanges = () => {

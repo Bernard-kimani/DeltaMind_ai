@@ -31,10 +31,12 @@ export const api = {
   // Backtest
   runBacktest: (body: { symbol: string; track: string; start: string; end: string }) => postJSON<BacktestResult>("/api/backtest", body),
 
-  // AI / engine configuration
-  getConfig: () => getJSON<FlatConfig>("/api/config"),
+  // AI / engine configuration — each track keeps its own saved symbols/
+  // interval (different watchlists per strategy), so every call is scoped
+  // to one `track`; only the LLM provider/model/keys are shared.
+  getConfig: (track: string) => getJSON<FlatConfig>(`/api/config?track=${track}`),
   saveConfig: (config: FlatConfig) => postJSON<FlatConfig>("/api/config", config),
-  resetConfig: () => postJSON<FlatConfig>("/api/config/reset"),
+  resetConfig: (track: string) => postJSON<FlatConfig>(`/api/config/reset?track=${track}`),
   testLLM: (provider: string, model: string, apiKey: string) => postJSON<TestResult>("/api/config/test-llm", { provider, model, api_key: apiKey }),
   testAlpaca: (track: string) => postJSON<TestResult>(`/api/config/test-alpaca?track=${track}`),
   getWatchlist: () => getJSON<{ csv: string; categories: Record<string, string[]> }>("/api/config/watchlist"),
