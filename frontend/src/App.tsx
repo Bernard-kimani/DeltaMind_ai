@@ -61,7 +61,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-ground text-text-primary">
-      <header className="grid grid-cols-3 items-center px-6 py-3.5 shrink-0">
+      <header className="grid grid-cols-[1fr_auto_1fr] items-center px-6 py-3.5 shrink-0">
         <button
           onClick={() => setView("landing")}
           className="justify-self-start text-[24px] leading-none tracking-wide focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ground"
@@ -71,12 +71,12 @@ export default function App() {
           <span className="text-text-primary">Mind</span> <span className="text-accent">AI</span>
         </button>
 
-        <nav className="flex justify-self-center gap-6">
+        <nav className="flex justify-self-center gap-4">
           {TABS.map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`border-b-2 pb-1 text-[11px] font-semibold tracking-[0.14em] uppercase transition-colors focus-visible:outline-none ${
+              className={`shrink-0 whitespace-nowrap border-b-2 pb-1 text-[11px] font-semibold tracking-[0.14em] uppercase transition-colors focus-visible:outline-none ${
                 tab === t ? "border-accent text-text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
               }`}
             >
