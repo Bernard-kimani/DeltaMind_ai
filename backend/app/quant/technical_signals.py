@@ -242,3 +242,71 @@ def check_track1_confluence(bars_1m: list[dict[str, Any]], bars_15m: list[dict[s
         "rvol": rvol,
         "rsi": rsi,
     }
+
+
+class MomentumSwingConfluence(TypedDict):
+    qualified: bool
+    direction: Literal["up", "down"] | None
+    price_vs_1h_ema_pct: float
+    price_vs_5m_ema_pct: float
+
+
+# Track 5 ("momentum swing"): a deliberately thin gate compared to Track 1's
+# five-factor stack above (no VWAP, no RSI band, no RVOL, no breakout
+# lookback) -- two conditions only: (1) the 1-hour 50-EMA sets trend
+# direction, (2) a genuine 5-minute EMA(20) crossover EVENT (not just
+# "currently above/below", an actual crossing between the previous and
+# latest bar) in that same direction is the entry trigger. Deliberately
+# loose on purpose (see strategies/track5_momentum_swing.py's module
+# docstring) -- the goal is to push more candidates to the LLM validator for
+# a real decision, not filter almost everything out deterministically the
+# way Track 1's gate does.
+EMA_1H_TREND_PERIOD = 50
+EMA_5M_PERIOD = 20
+
+
+def check_momentum_swing_confluence(bars_5m: list[dict[str, Any]], bars_1h: list[dict[str, Any]]) -> MomentumSwingConfluence:
+    """`bars_1h` must be native 1-hour bars (see alpaca/rest_client.get_1h_bars)
+    — same "native, not resampled" precedent as check_track1_confluence's
+    15m leg. `bars_5m` needs one extra bar beyond EMA_5M_PERIOD's own warmup
+    so the crossover check has both the previous and latest bar's EMA to
+    compare (computed by re-running compute_ema over two slices, not a full
+    rolling series — compute_ema only ever returns the final value of
+    whatever closes list it's given, so calling it twice over
+    closes_5m[:-1] and closes_5m is the direct way to get "yesterday's" and
+    "today's" EMA)."""
+    empty: MomentumSwingConfluence = {
+        "qualified": False, "direction": None, "price_vs_1h_ema_pct": 0.0, "price_vs_5m_ema_pct": 0.0,
+    }
+    if len(bars_5m) < EMA_5M_PERIOD + 2 or len(bars_1h) < EMA_1H_TREND_PERIOD:
+        return empty
+
+    closes_5m = [b["close"] for b in bars_5m]
+    closes_1h = [b["close"] for b in bars_1h]
+    latest_close = closes_5m[-1]
+    prev_close = closes_5m[-2]
+
+    ema_1h = compute_ema(closes_1h, EMA_1H_TREND_PERIOD)
+    ema_5m_latest = compute_ema(closes_5m, EMA_5M_PERIOD)
+    ema_5m_prev = compute_ema(closes_5m[:-1], EMA_5M_PERIOD)
+    if ema_1h is None or ema_5m_latest is None or ema_5m_prev is None:
+        return empty
+
+    price_vs_1h_ema_pct = (latest_close - ema_1h) / ema_1h if ema_1h else 0.0
+    price_vs_5m_ema_pct = (latest_close - ema_5m_latest) / ema_5m_latest if ema_5m_latest else 0.0
+
+    trend_up = latest_close > ema_1h
+    trend_down = latest_close < ema_1h
+    crossed_up = prev_close <= ema_5m_prev and latest_close > ema_5m_latest
+    crossed_down = prev_close >= ema_5m_prev and latest_close < ema_5m_latest
+
+    direction: Literal["up", "down"] | None = (
+        "up" if (trend_up and crossed_up) else "down" if (trend_down and crossed_down) else None
+    )
+
+    return {
+        "qualified": direction is not None,
+        "direction": direction,
+        "price_vs_1h_ema_pct": price_vs_1h_ema_pct,
+        "price_vs_5m_ema_pct": price_vs_5m_ema_pct,
+    }

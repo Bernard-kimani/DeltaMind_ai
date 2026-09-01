@@ -170,7 +170,7 @@ function DecisionDetailModal({ decision, onClose }: { decision: AgentDecision; o
 const fmtRatio = (v: number | null) => (v === null ? "—" : v.toFixed(2));
 
 export default function PerformancePage({ onStatusMessage }: { onStatusMessage: (msg: string) => void }) {
-  const [track, setTrack] = useState<"track1_alpha_spreads" | "track4_income_wheel">("track1_alpha_spreads");
+  const [track, setTrack] = useState<"track1_alpha_spreads" | "track4_income_wheel" | "track5_momentum_swing">("track1_alpha_spreads");
   const [openDecision, setOpenDecision] = useState<AgentDecision | null>(null);
 
   const { data: perf } = useQuery({ queryKey: ["performance", track], queryFn: () => api.getPerformance(track), refetchInterval: 10000 });
@@ -184,13 +184,13 @@ export default function PerformancePage({ onStatusMessage }: { onStatusMessage: 
         title="Performance"
         action={
           <div className="flex gap-1">
-            {(["track1_alpha_spreads", "track4_income_wheel"] as const).map((t) => (
+            {(["track1_alpha_spreads", "track4_income_wheel", "track5_momentum_swing"] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTrack(t)}
                 className={`px-3 py-1 text-[11px] font-semibold tracking-wide uppercase border ${track === t ? "border-accent text-accent" : "border-border text-text-secondary hover:text-text-primary"}`}
               >
-                {t === "track1_alpha_spreads" ? "Track 1" : "Track 4"}
+                {t === "track1_alpha_spreads" ? "Track 1" : t === "track4_income_wheel" ? "Track 4" : "Track 5"}
               </button>
             ))}
           </div>

@@ -7,11 +7,22 @@ exit, stop-loss, time-stop, EOD liquidation) run on their own fixed ~15s
 cadence in parallel, since exits aren't bar-triggered (see
 app/agents/position_monitor.py).
 
+Also used by Track 5 (added 2026-09-01, a looser sibling of Track 1 — same
+bar-close-triggered shape, just a different technical gate/validator/DTE
+inside `run_cycle`) via the `--track` argument — this script's own logic is
+already fully track-parameterized (run_cycle/save_agent_decision both take
+`track` as data, nothing here hardcodes Track 1's specific gate), so
+generalizing it was a CLI-argument change, not a rewrite. Kept this
+filename rather than renaming, to avoid churning agent_loop_manager.py's
+existing Track 1 reference for no behavioral benefit.
+
 Usage:
     uv run python scripts/run_agent_stream_track1.py --symbols SPY,QQQ,NVDA
+    uv run python scripts/run_agent_stream_track1.py --symbols SPY,QQQ --track track5_momentum_swing
 
 Normally launched as a subprocess by app/agent_loop_manager.py (the Controls
-tab's Start/Stop/Restart buttons, when track=track1_alpha_spreads).
+tab's Start/Stop/Restart buttons, when track is track1_alpha_spreads or
+track5_momentum_swing).
 
 Architecture note: `StockDataStream.run()` blocks and manages its own
 asyncio event loop internally, so it's run in a background daemon thread;
@@ -43,8 +54,19 @@ from app.rate_limits import CIRCUIT_BREAKER_EXIT_CODE, CONSECUTIVE_FAILED_PASSES
 
 logger = logging.getLogger("agent_stream_track1")
 
-TRACK = "track1_alpha_spreads"
 SWEEP_INTERVAL_SECONDS = 15
+# Most of the watchlist's 1-minute bars close together near the top of the
+# minute, so an unthrottled _on_bar would fire ~15 concurrent cycles at once
+# -- each already opening its own ThreadPoolExecutor(max_workers=3) inside
+# market_ingestion.py for its own data fetches, so a synchronized burst can
+# mean ~45 threads alive simultaneously (each holding a LangGraph invocation
+# + LLM client + bar/option DataFrames). Confirmed live on 2026-09-01: this
+# spike, on top of Track 4's separate subprocess and the FastAPI parent, blew
+# past Render's free-tier 512MB limit and triggered an OOM restart. This cap
+# staggers a synchronized burst across the watchlist instead of running it
+# all at once -- smooths the spike without changing the "fires on every real
+# bar-close" design.
+BAR_CLOSE_CONCURRENCY_LIMIT = 4
 # Target: candle-close to cycle-complete (WAIT/TRADE/REJECTED, including a
 # real Alpaca order placement on a qualifying+approved cycle) should stay
 # under this. graph.py's per-node timings (logged separately, same file)
@@ -97,12 +119,17 @@ _consecutive_failures = 0
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", required=True, help="comma-separated, e.g. SPY,QQQ")
+    parser.add_argument(
+        "--track", default="track1_alpha_spreads", choices=["track1_alpha_spreads", "track5_momentum_swing"],
+        help="which track this bar-close-triggered stream runs — Track 1's original entrypoint, or its looser Track 5 sibling",
+    )
     args = parser.parse_args()
+    track = args.track
 
-    log_file = _log_file_for_track(TRACK)
+    log_file = _log_file_for_track(track)
     _configure_logging(log_file)
     symbols = [s.strip() for s in args.symbols.split(",")]
-    logger.info("Track 1 streaming agent starting — symbols=%s (bar-close-triggered, no fixed interval)", symbols)
+    logger.info("%s streaming agent starting — symbols=%s (bar-close-triggered, no fixed interval)", track, symbols)
     logger.info("Importing agent graph and dependencies (LangGraph, Alpaca SDK, LLM clients)...")
 
     from alpaca.data.live import StockDataStream
@@ -119,10 +146,10 @@ def main() -> None:
     stream = StockDataStream(settings.alpaca_api_key, settings.alpaca_secret_key)
 
     def _run_and_persist(symbol: str) -> dict:
-        result = run_cycle(symbol=symbol, track=TRACK)
+        result = run_cycle(symbol=symbol, track=track)
         save_agent_decision(
             symbol=symbol,
-            track=TRACK,
+            track=track,
             sentiment_score=result.get("sentiment_score"),
             thesis=result.get("thesis"),
             proposed_order=result.get("proposed_order"),
@@ -197,10 +224,13 @@ def main() -> None:
                 )
                 _circuit_breaker_tripped.set()
 
+    bar_close_semaphore = asyncio.Semaphore(BAR_CLOSE_CONCURRENCY_LIMIT)
+
     async def _handle_bar_close(symbol: str, candle_close_at: float) -> None:
         if _circuit_breaker_tripped.is_set():
             return
-        await asyncio.to_thread(_process_symbol, symbol, "bar close", candle_close_at)
+        async with bar_close_semaphore:
+            await asyncio.to_thread(_process_symbol, symbol, "bar close", candle_close_at)
 
     async def _on_bar(bar) -> None:
         # Captured here, not inside _handle_bar_close/_process_symbol — this
@@ -248,7 +278,7 @@ def main() -> None:
             sys.exit(CIRCUIT_BREAKER_EXIT_CODE)
 
         try:
-            for action in sweep_positions(TRACK):
+            for action in sweep_positions(track):
                 logger.info("[%s] monitor: %s", action["symbol"], action["action"])
         except Exception:
             logger.exception("position monitor sweep failed")

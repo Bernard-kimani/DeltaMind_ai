@@ -1,4 +1,4 @@
-export const TRACKS = ["track1_alpha_spreads", "track2_volatility_events", "track3_hedging", "track4_income_wheel"] as const;
+export const TRACKS = ["track1_alpha_spreads", "track2_volatility_events", "track3_hedging", "track4_income_wheel", "track5_momentum_swing"] as const;
 export type Track = (typeof TRACKS)[number];
 
 export const TRACK_LABELS: Record<Track, string> = {
@@ -6,6 +6,10 @@ export const TRACK_LABELS: Record<Track, string> = {
   track2_volatility_events: "Track 2 — Volatility & Events",
   track3_hedging: "Track 3 — Hedging & Protection",
   track4_income_wheel: "Track 4 — Income & Overlay (Wheel)",
+  // Not a hackathon-labeled track — a looser Track 1 sibling added
+  // 2026-09-01 after Track 1/4 both went a full live session without a
+  // trade. Named to make that distinction clear in the UI, not "Track 5".
+  track5_momentum_swing: "Momentum Swing — Track 1 Variant",
 };
 
 export const TRACK_SUMMARY: Record<Track, { structure: string; regime: string; metric: string }> = {
@@ -28,6 +32,11 @@ export const TRACK_SUMMARY: Record<Track, { structure: string; regime: string; m
     structure: "The Wheel — 0.25–0.30Δ cash-secured puts ↔ covered calls, ~21 DTE",
     regime: "Elevated IV + healthy pullback (200-EMA/RSI regime, CSP entries only)",
     metric: "IV percentile ≥ 45 + daily 200-EMA/RSI(14) regime",
+  },
+  track5_momentum_swing: {
+    structure: "Single-leg long call/put, ~0.50Δ, 3-7 DTE — bar-close triggered, same shape as Track 1",
+    regime: "Any 1h-trend-aligned 5m momentum crossover — deliberately thin gate",
+    metric: "1h EMA(50) trend + 5m EMA(20) crossover, LLM given real decision weight (lower confidence bar than Track 1)",
   },
 };
 

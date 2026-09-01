@@ -20,6 +20,7 @@ class AgentState(TypedDict, total=False):
         "track2_volatility_events",
         "track3_hedging",
         "track4_income_wheel",
+        "track5_momentum_swing",
     ]
     # Track 1's runtime-configurable entry thresholds (Controls UI), read by
     # quant_engine.py (volume_ratio_min) and track1_alpha_spreads.py
@@ -34,6 +35,8 @@ class AgentState(TypedDict, total=False):
     market_data: list[dict[str, Any]]  # oldest-first 1-minute bars, see alpaca/rest_client.get_recent_bars
     option_chain: list[dict[str, Any]]  # empty for Track 1 (deferred to track1_validator.py — see its docstring)
     bars_15m: list[dict[str, Any]]  # Track 1 only — native 15-minute bars, see rest_client.get_15m_bars
+    bars_5m: list[dict[str, Any]]  # Track 5 only — native 5-minute bars, see rest_client.get_5m_bars
+    bars_1h: list[dict[str, Any]]  # Track 5 only — native 1-hour bars, see rest_client.get_1h_bars
     daily_bars: list[dict[str, Any]]  # Track 4 only — see rest_client.get_daily_bars / technical_signals.check_wheel_put_regime
 
     # quant_engine.py — deterministic, no LLM involved

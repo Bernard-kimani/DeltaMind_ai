@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     alpaca_api_key_track4: str = ""
     alpaca_secret_key_track4: str = ""
 
+    # Same pattern as Track 4's pair above — Track 5 (a looser Track 1
+    # sibling, not a hackathon-labeled track, added 2026-09-01) gets its own
+    # dedicated paper account too, empty by default falling back to the
+    # shared pair for local dev/testing.
+    alpaca_api_key_track5: str = ""
+    alpaca_secret_key_track5: str = ""
+
     # LLM
     llm_provider: str = "featherless"
     llm_model: str = "moonshotai/Kimi-K2-Instruct"
@@ -65,11 +72,14 @@ def get_settings() -> Settings:
 def get_alpaca_credentials(track: str) -> tuple[str, str]:
     """Resolves which Alpaca paper account a track should trade against.
     Track 1 (and anything else) always uses the shared/default credentials;
-    Track 4 uses its own pair once both are actually set in .env, otherwise
-    falls back to the shared pair too — so testing with one account (today)
-    and submission-time separation (once a second account exists) both work
-    with zero code changes, only an .env edit."""
+    Track 4 and Track 5 each use their own pair once both are actually set
+    in .env/the environment, otherwise fall back to the shared pair too —
+    so testing with one account and submission-time separation (once a
+    second/third account exists) both work with zero code changes, only an
+    env-var edit."""
     settings = get_settings()
     if track == "track4_income_wheel" and settings.alpaca_api_key_track4 and settings.alpaca_secret_key_track4:
         return settings.alpaca_api_key_track4, settings.alpaca_secret_key_track4
+    if track == "track5_momentum_swing" and settings.alpaca_api_key_track5 and settings.alpaca_secret_key_track5:
+        return settings.alpaca_api_key_track5, settings.alpaca_secret_key_track5
     return settings.alpaca_api_key, settings.alpaca_secret_key

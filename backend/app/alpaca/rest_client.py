@@ -9,10 +9,11 @@ trail the hackathon rewards.
 
 import functools
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache, wraps
 
 import requests
+from alpaca.data.enums import DataFeed
 from alpaca.data.historical.option import OptionHistoricalDataClient
 from alpaca.data.historical.stock import StockHistoricalDataClient
 from alpaca.data.requests import OptionChainRequest, StockBarsRequest
@@ -152,11 +153,71 @@ def get_15m_bars(symbol: str, limit: int = 60) -> list[dict]:
 
 
 @_retry_once_on_disconnect
+def get_5m_bars(symbol: str, limit: int = 100) -> list[dict]:
+    """Native 5-minute bars — Track 5's entry-timeframe leg, same
+    "native, not resampled" precedent as get_15m_bars (see
+    technical_signals.check_momentum_swing_confluence).
+
+    Confirmed live on 2026-09-01: unlike get_recent_bars/get_15m_bars (which
+    work fine on a bare `limit=N` because 1-minute/15-minute requests
+    apparently get silently routed to IEX for "recent" data), a bare
+    `limit=N` for 5-minute/1-hour bars returned far fewer bars than
+    requested (34/100 and 3/60) when tested after-hours — inconsistent with
+    the same free-tier feed-routing behavior the other timeframes get.
+    Explicit `start`/`end=now`/`feed=IEX` reliably returns the full
+    requested count instead of depending on that ambiguous auto-selection."""
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=30)
+    request = StockBarsRequest(
+        symbol_or_symbols=symbol, timeframe=TimeFrame(5, TimeFrameUnit.Minute),
+        limit=limit, start=start, end=end, feed=DataFeed.IEX,
+    )
+    bars = _stock_data_client().get_stock_bars(request)
+    return bars.df.reset_index().to_dict(orient="records")
+
+
+@_retry_once_on_disconnect
+def get_1h_bars(symbol: str, limit: int = 60) -> list[dict]:
+    """Native 1-hour bars — Track 5's higher-timeframe trend leg. 60 bars
+    covers the 50-period EMA warmup with margin, same sizing logic as
+    get_15m_bars. See get_5m_bars' docstring for why explicit
+    start/end/feed=IEX is used here rather than a bare `limit=N`."""
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=30)
+    request = StockBarsRequest(
+        symbol_or_symbols=symbol, timeframe=TimeFrame(1, TimeFrameUnit.Hour),
+        limit=limit, start=start, end=end, feed=DataFeed.IEX,
+    )
+    bars = _stock_data_client().get_stock_bars(request)
+    return bars.df.reset_index().to_dict(orient="records")
+
+
+@_retry_once_on_disconnect
 def get_daily_bars(symbol: str, limit: int = 20) -> list[dict]:
-    """Daily (not minute) bars — used by watchlist.py's liquidity pre-filter
-    for average daily volume, distinct from get_recent_bars' minute bars
-    (used by technical_signals.py's breakout detection)."""
-    request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Day, limit=limit)
+    """Daily (not minute) bars — used by watchlist.py's liquidity pre-filter,
+    Track 4's live 200-day EMA/RSI regime check (market_ingestion.py), and
+    position_monitor.py's stop-loss-defense structure check, for average
+    daily volume, distinct from get_recent_bars' minute bars (used by
+    technical_signals.py's breakout detection).
+
+    Confirmed live on 2026-09-01: a bare `limit=N` with no explicit
+    start/end silently returns ZERO bars on Alpaca's free-tier data plan —
+    it resolves to an open-ended "up through right now" query, which hits
+    the same "recent" data restriction the backtest engine's own docstring
+    already documents for intraday bars, apparently for daily too. This was
+    never noticed because every existing caller only ever used the bare
+    `limit=N` form. Passing an explicit `end` alone doesn't work either
+    (Alpaca errors "end should not be before start" — the API defaults
+    `start` to something that conflicts once `end` is explicit) — both
+    `start` and `end` must be set together. `end` is pinned to yesterday to
+    stay clear of the "recent" restriction entirely; `start` is padded to
+    2x the requested trading-day count in calendar days (comfortably covers
+    weekends/holidays) purely to bound the query window — `limit` still
+    caps the actual number of bars returned.
+    """
+    end = datetime.now(timezone.utc) - timedelta(days=1)
+    start = end - timedelta(days=limit * 2)
+    request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Day, limit=limit, start=start, end=end)
     bars = _stock_data_client().get_stock_bars(request)
     return bars.df.reset_index().to_dict(orient="records")
 

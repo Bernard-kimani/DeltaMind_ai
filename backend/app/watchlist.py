@@ -15,9 +15,20 @@ from app.alpaca.rest_client import get_daily_bars, get_option_chain
 
 WATCHLIST_CATEGORIES: dict[str, list[str]] = {
     "index_etf": ["SPY", "QQQ", "IWM"],
-    "mega_cap_tech": ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META"],
+    "mega_cap_tech": ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "INTC"],
     "high_beta_momentum": ["TSLA", "AMD", "COIN"],
     "sector_etf": ["XLF", "XLE", "SMH"],
+    # Added 2026-09-01 specifically for Track 4: every technically-qualifying
+    # contract on the watchlist above blew the 15%/25% sizing caps in dry-run
+    # testing (a single CSP's collateral = strike x 100, and these names are
+    # all $150-500+/share) -- confirmed a sizing problem, not a signal or DTE
+    # problem, so Track 4's actual DTE/exit logic stays untouched. These are
+    # deliberately lower-priced ($28-107/share) but still liquid names
+    # (11M-40M avg daily volume, ~21-DTE ATM spread under the 15% floor)
+    # so a CSP can actually clear risk_gate without loosening any risk cap.
+    "financials": ["BAC"],
+    "healthcare": ["PFE"],
+    "media_entertainment": ["DIS"],
 }
 
 WATCHLIST: list[str] = [symbol for symbols in WATCHLIST_CATEGORIES.values() for symbol in symbols]

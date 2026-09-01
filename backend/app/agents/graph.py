@@ -3,7 +3,8 @@
     news_blackout_gate --(blocked)--------------------------------------------> END (0 REST/LLM calls)
                        --(clear)--> market_ingestion -> quant_engine --(Track 1, qualified)--> track1_validator --> risk_gate
                                                                      --(Track 4, qualified)--> track4_validator --> risk_gate
-                                                                     --(Track 1/4, not qualified)-----------------> END (0 LLM calls)
+                                                                     --(Track 5, qualified)--> track5_validator --> risk_gate
+                                                                     --(Track 1/4/5, not qualified)-----------------> END (0 LLM calls)
                                                                      --(Track 2/3)-----------> news_analyst -> lead_architect -> risk_gate
                                                                                                                                      |
                                                                                                risk_approved? --yes--+--> execution -> END
@@ -12,7 +13,7 @@
 news_blackout_gate is the entry point, before market_ingestion — a cycle
 inside a red-folder release's blackout window (see app/quant/news_calendar.py)
 pays for zero REST calls and zero LLM calls, same "gate cheaply before
-spending anything" principle as Track 1/4's own screens below it.
+spending anything" principle as Track 1/4/5's own screens below it.
 risk_gate.py re-checks the same condition as a backstop, in case a slow
 cycle drifts across a blackout boundary between this gate and final approval.
 
@@ -27,9 +28,19 @@ fresh cash-secured put only, not a covered call — the daily-bar 200-EMA/RSI
 regime check (quant_engine.py) must also qualify, before its own merged
 risk-officer call (track4_validator.py) — see docs/tracks/track4_income_wheel.md.
 
+Track 5 (added 2026-09-01, not a hackathon-labeled track — a deliberately
+looser sibling of Track 1 built after Track 1/4 both went a full live
+session without a single trade) follows Track 1's exact shape but with a
+much thinner deterministic gate (quant_engine.py's momentum-swing
+confluence check) and a validator with real decision-making weight instead
+of a rubber-stamp — see app/strategies/track5_momentum_swing.py and
+track5_validator.py.
+
 Run one cycle with `run_cycle(symbol, track)`. `backend/scripts/run_agent_loop.py`
-(Track 4) and `backend/scripts/run_agent_stream_track1.py` (Track 1) call this
-on their own schedules for the live hackathon-week loop.
+(Track 4) and `backend/scripts/run_agent_stream_track1.py` (Track 1 and
+Track 5, both bar-close-triggered rather than interval-polled — see that
+script's own `--track` argument) call this on their own schedules for the
+live hackathon-week loop.
 """
 
 import time
@@ -37,7 +48,7 @@ from typing import Callable
 
 from langgraph.graph import END, StateGraph
 
-from app.agents import execution, lead_architect, market_ingestion, news_analyst, news_blackout_gate, quant_engine, risk_gate, track1_validator, track4_validator
+from app.agents import execution, lead_architect, market_ingestion, news_analyst, news_blackout_gate, quant_engine, risk_gate, track1_validator, track4_validator, track5_validator
 from app.agents.state import AgentState
 from app.strategies.track4_income_wheel import IV_PERCENTILE_FLOOR as WHEEL_IV_FLOOR
 
@@ -69,6 +80,9 @@ def _route_after_quant(state: AgentState) -> str:
     if state["track"] == "track1_alpha_spreads":
         return "track1_validator" if state.get("technical_signal", {}).get("qualified") else END
 
+    if state["track"] == "track5_momentum_swing":
+        return "track5_validator" if state.get("technical_signal", {}).get("qualified") else END
+
     if state["track"] == "track4_income_wheel":
         if state.get("iv_percentile", 0) < WHEEL_IV_FLOOR:
             return END
@@ -97,6 +111,7 @@ def build_graph():
     graph.add_node("lead_architect", _timed("lead_architect", lead_architect.run))
     graph.add_node("track1_validator", _timed("track1_validator", track1_validator.run))
     graph.add_node("track4_validator", _timed("track4_validator", track4_validator.run))
+    graph.add_node("track5_validator", _timed("track5_validator", track5_validator.run))
     graph.add_node("risk_gate", _timed("risk_gate", risk_gate.run))
     graph.add_node("execution", _timed("execution", execution.run))
 
@@ -108,12 +123,16 @@ def build_graph():
     graph.add_conditional_edges(
         "quant_engine",
         _route_after_quant,
-        {"news_analyst": "news_analyst", "track1_validator": "track1_validator", "track4_validator": "track4_validator", END: END},
+        {
+            "news_analyst": "news_analyst", "track1_validator": "track1_validator",
+            "track4_validator": "track4_validator", "track5_validator": "track5_validator", END: END,
+        },
     )
     graph.add_edge("news_analyst", "lead_architect")
     graph.add_edge("lead_architect", "risk_gate")
     graph.add_edge("track1_validator", "risk_gate")
     graph.add_edge("track4_validator", "risk_gate")
+    graph.add_edge("track5_validator", "risk_gate")
     graph.add_conditional_edges("risk_gate", _route_after_risk_gate, {"execution": "execution", END: END})
     graph.add_edge("execution", END)
 

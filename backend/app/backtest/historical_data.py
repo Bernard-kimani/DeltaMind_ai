@@ -19,12 +19,27 @@ therefore already correct; chunking would just be unneeded complexity.
 import logging
 import time
 
+from alpaca.data.enums import DataFeed
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
 from app.alpaca.rest_client import get_stock_data_client
 
 logger = logging.getLogger(__name__)
+
+# Confirmed live on 2026-09-01: neither this module nor rest_client.py's live
+# path ever set `feed` explicitly, so each silently got whatever Alpaca
+# defaults to for that KIND of request -- full consolidated SIP for an
+# already-closed historical range (what this module was requesting), but the
+# sparser IEX-only feed for live's same-day "recent" queries (free-tier data
+# plan restriction, not a bug -- see engine.py's module docstring). That
+# mismatch meant the backtest's qualification-rate numbers were measured
+# against a materially richer tape than live ever actually sees. Explicitly
+# requesting IEX here for Track 1's intraday bars (1m/15m) makes this an
+# apples-to-apples number instead -- Track 4's daily regime gate isn't part
+# of this fix since it reads already-closed prior days even live, not
+# today's in-progress session.
+LIVE_MATCHED_FEED = DataFeed.IEX
 
 # Politeness delay between symbols, not a pagination mechanism — Alpaca's
 # free-tier data API has a per-minute request cap; the SDK's own internal
@@ -50,7 +65,7 @@ def load_1m_bars(symbol: str, start, end) -> list[dict]:
     to whatever bars the IEX feed delivers — replaying every bar Alpaca
     actually returns (including sparse pre/after-market ones) is the
     faithful match to live behavior, not an approximation of it."""
-    request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Minute, start=start, end=end)
+    request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Minute, start=start, end=end, feed=LIVE_MATCHED_FEED)
     bars = get_stock_data_client().get_stock_bars(request)
     return _bars_to_dicts(bars.df)
 
@@ -59,7 +74,7 @@ def load_15m_bars(symbol: str, start, end) -> list[dict]:
     """Track 1's 15-minute EMA(50) trend leg — same native-15-minute-bar
     approach as rest_client.get_15m_bars' live counterpart, not resampled
     from 1-minute bars."""
-    request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame(15, TimeFrameUnit.Minute), start=start, end=end)
+    request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame(15, TimeFrameUnit.Minute), start=start, end=end, feed=LIVE_MATCHED_FEED)
     bars = get_stock_data_client().get_stock_bars(request)
     return _bars_to_dicts(bars.df)
 

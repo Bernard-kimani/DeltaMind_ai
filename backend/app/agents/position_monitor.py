@@ -66,15 +66,21 @@ def sweep_positions(track: str) -> list[dict]:
     """Returns a log of actions taken this sweep — callers (run_agent_loop.py,
     run_agent_stream_track1.py) log/persist as appropriate. Safe to call
     every pass even when nothing's open (returns an empty list)."""
-    if track == "track1_alpha_spreads":
-        return _sweep_track1_positions()
+    if track in ("track1_alpha_spreads", "track5_momentum_swing"):
+        # Track 5 is a single-leg long-option strategy shaped exactly like
+        # Track 1 (see track5_momentum_swing.py) — every exit threshold this
+        # sweep checks (tp1_pct, tp2_pct, stop_loss_pct, max_hold_minutes) is
+        # read from each trade's own stored order, not hardcoded per track,
+        # so the same sweep function genuinely applies unchanged; only which
+        # track's open trades it fetches differs.
+        return _sweep_track1_positions(track)
     if track == "track4_income_wheel":
         return _sweep_track4_positions()
     return []
 
 
-def _sweep_track1_positions() -> list[dict]:
-    open_trades = list_open_trades(track="track1_alpha_spreads")
+def _sweep_track1_positions(track: str = "track1_alpha_spreads") -> list[dict]:
+    open_trades = list_open_trades(track=track)
     if not open_trades:
         return []
 

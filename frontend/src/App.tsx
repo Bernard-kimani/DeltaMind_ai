@@ -10,12 +10,13 @@ import PerformancePage from "./features/performance/PerformancePage";
 import LogsPage from "./features/logs/LogsPage";
 import LandingPage from "./features/landing/LandingPage";
 
-// Track 1 and Track 4 each get their own Controls tab, locked to that track
-// (see ControlsPage's `track` prop) — one running localhost, two independent
-// panels, so testing both doesn't require two dev server instances.
-// Performance covers both tracks itself via an in-page toggle instead of two
-// more top-level tabs.
-const TABS = ["Track 1", "Track 4", "Performance", "Strategies", "Backtest", "Logs"] as const;
+// Track 1, Track 4, and Track 5 (a looser Track 1 sibling, not a
+// hackathon-labeled track — see api/types.ts) each get their own Controls
+// tab, locked to that track (see ControlsPage's `track` prop) — one running
+// localhost, independent panels, so testing all three doesn't require
+// separate dev server instances. Performance covers every track itself via
+// an in-page toggle instead of more top-level tabs.
+const TABS = ["Track 1", "Track 4", "Track 5", "Performance", "Strategies", "Backtest", "Logs"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function App() {
@@ -34,8 +35,8 @@ export default function App() {
     localStorage.setItem("deltamind_theme", theme);
   }, [theme]);
 
-  // Header ticker/footer dot reflect either engine — both tracks share this
-  // one running instance now, so "live" means at least one loop is active.
+  // Header ticker/footer dot reflect any engine — all three tracks share
+  // this one running instance now, so "live" means at least one loop is active.
   const { data: status1 } = useQuery({
     queryKey: ["engine-status", "track1_alpha_spreads"],
     queryFn: () => api.getEngineStatus("track1_alpha_spreads"),
@@ -46,8 +47,13 @@ export default function App() {
     queryFn: () => api.getEngineStatus("track4_income_wheel"),
     refetchInterval: 3000,
   });
+  const { data: status5 } = useQuery({
+    queryKey: ["engine-status", "track5_momentum_swing"],
+    queryFn: () => api.getEngineStatus("track5_momentum_swing"),
+    refetchInterval: 3000,
+  });
 
-  const running = (status1?.is_running ?? false) || (status4?.is_running ?? false);
+  const running = (status1?.is_running ?? false) || (status4?.is_running ?? false) || (status5?.is_running ?? false);
 
   if (view === "landing") {
     return <LandingPage onEnter={() => setView("app")} />;
@@ -96,6 +102,7 @@ export default function App() {
       <main className="flex-1 overflow-auto p-6">
         {tab === "Track 1" && <ControlsPage track="track1_alpha_spreads" onStatusMessage={setStatusMessage} />}
         {tab === "Track 4" && <ControlsPage track="track4_income_wheel" onStatusMessage={setStatusMessage} />}
+        {tab === "Track 5" && <ControlsPage track="track5_momentum_swing" onStatusMessage={setStatusMessage} />}
         {tab === "Performance" && <PerformancePage onStatusMessage={setStatusMessage} />}
         {tab === "Strategies" && <StrategiesPage onStatusMessage={setStatusMessage} />}
         {tab === "Backtest" && <BacktestPage onStatusMessage={setStatusMessage} />}

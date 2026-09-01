@@ -74,17 +74,19 @@ class AgentLoopManager:
 
     def _spawn(self, symbols: str, interval_seconds: int, sentiment_threshold: float, volume_ratio_min: float) -> tuple[bool, str]:
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        if self.track == "track1_alpha_spreads":
-            # Track 1 runs a real Alpaca websocket stream (bar-close
-            # triggered, no fixed interval) instead of the interval-polling
-            # script every other track uses — see run_agent_stream_track1.py.
-            # interval_seconds/sentiment_threshold/volume_ratio_min don't
-            # apply to it at all, so they're silently ignored here rather
-            # than forwarded.
+        if self.track in ("track1_alpha_spreads", "track5_momentum_swing"):
+            # Track 1 (and Track 5, its looser sibling — see
+            # run_agent_stream_track1.py's own --track argument) run a real
+            # Alpaca websocket stream (bar-close triggered, no fixed
+            # interval) instead of the interval-polling script every other
+            # track uses. interval_seconds/sentiment_threshold/volume_ratio_min
+            # don't apply to either of them, so they're silently ignored
+            # here rather than forwarded.
             cmd = [
                 sys.executable,
                 str(BACKEND_DIR / "scripts" / "run_agent_stream_track1.py"),
                 "--symbols", symbols,
+                "--track", self.track,
             ]
         else:
             cmd = [

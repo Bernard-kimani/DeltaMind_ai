@@ -6,7 +6,7 @@ import { Card, Section } from "../../components/primitives";
 // ACTIVE_TRACK build flag (still used by LogsPage, which does tail a single
 // track's own log file), this page has no reason to hide either strategy
 // behind a build-time switch: a judge reading "Strategies" should see both.
-const IMPLEMENTED_TRACKS = ["track1_alpha_spreads", "track4_income_wheel"] as const;
+const IMPLEMENTED_TRACKS = ["track1_alpha_spreads", "track4_income_wheel", "track5_momentum_swing"] as const;
 
 // Mirrors the constants at the top of each backend/app/strategies/track*.py
 // module — this page is reference documentation, not a live editor; tuning
@@ -50,13 +50,26 @@ const TRACK_PARAMS: Record<(typeof TRACKS)[number], { label: string; value: stri
     { label: "Stop-loss defense", value: "Cost to close = 3× premium AND 200-EMA broken" },
     { label: "LLM risk-officer gate", value: "Verdict APPROVE, no earnings conflict, risk ≤ 0.35, confidence ≥ 70% (fixed)" },
   ],
+  track5_momentum_swing: [
+    { label: "Structure", value: "Single-leg long call/put (same as Track 1)" },
+    { label: "Target delta", value: "0.45–0.55Δ" },
+    { label: "Target DTE", value: "3–7 days" },
+    { label: "Position sizing", value: "3% of equity" },
+    { label: "Take-profit (tier 1)", value: "+50% (half, stop → breakeven)" },
+    { label: "Take-profit (tier 2)", value: "+100%, or 1h trend reversal" },
+    { label: "Stop-loss", value: "20% (clamped to platform ceiling)" },
+    { label: "Time-stop", value: "4h default, 8h ceiling if flat" },
+    { label: "EOD liquidation", value: "3:45pm ET, unconditional" },
+    { label: "Entry trigger", value: "1h EMA(50) trend + 5m EMA(20) crossover — deliberately thin, 2 factors vs. Track 1's 5" },
+    { label: "LLM catalyst gate", value: "Verdict APPROVE, no sentiment contradiction, confidence ≥ 55% (looser than Track 1)" },
+  ],
 };
 
 export default function StrategiesPage({ onStatusMessage: _onStatusMessage }: { onStatusMessage: (msg: string) => void }) {
   return (
     <div className="flex flex-col gap-6">
       <Section title="Strategy">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {IMPLEMENTED_TRACKS.map((track) => (
             <Card key={track} className="p-4 flex flex-col gap-3">
               <h3 className="text-sm font-semibold text-text-primary">{TRACK_LABELS[track]}</h3>

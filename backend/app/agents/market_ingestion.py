@@ -9,7 +9,7 @@ see below). No LLM involved.
 import concurrent.futures
 
 from app.agents.state import AgentState
-from app.alpaca.rest_client import get_15m_bars, get_daily_bars, get_option_chain, get_recent_bars
+from app.alpaca.rest_client import get_1h_bars, get_5m_bars, get_15m_bars, get_daily_bars, get_option_chain, get_recent_bars
 
 # Enough daily history to seed a 200-period EMA (plus RSI(14) warmup) — see
 # technical_signals.check_wheel_put_regime. Duplicated (not imported) in
@@ -38,16 +38,26 @@ def run(state: AgentState) -> dict:
     # already cleared both the technical gate and the LLM catalyst check,
     # i.e. the rare cycle actually about to place an order. Track 4's gate
     # needs iv_percentile (sourced from this same chain) before it can even
-    # route past quant_engine, so it keeps fetching eagerly here.
+    # route past quant_engine, so it keeps fetching eagerly here. Track 5
+    # mirrors Track 1's deferral (its gate is technical_signal.qualified
+    # only, same as Track 1 — see track5_validator.py).
+    no_chain_here = track in ("track1_alpha_spreads", "track5_momentum_swing")
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         market_data_future = pool.submit(get_recent_bars, symbol)
         bars_15m_future = pool.submit(get_15m_bars, symbol) if track == "track1_alpha_spreads" else None
-        option_chain_future = pool.submit(get_option_chain, symbol) if track != "track1_alpha_spreads" else None
+        bars_5m_future = pool.submit(get_5m_bars, symbol) if track == "track5_momentum_swing" else None
+        bars_1h_future = pool.submit(get_1h_bars, symbol) if track == "track5_momentum_swing" else None
+        option_chain_future = pool.submit(get_option_chain, symbol) if not no_chain_here else None
         daily_bars_future = pool.submit(get_daily_bars, symbol, WHEEL_DAILY_BARS_LIMIT) if track == "track4_income_wheel" else None
 
         market_data = market_data_future.result()
         bars_15m = bars_15m_future.result() if bars_15m_future else []
+        bars_5m = bars_5m_future.result() if bars_5m_future else []
+        bars_1h = bars_1h_future.result() if bars_1h_future else []
         option_chain = option_chain_future.result() if option_chain_future else []
         daily_bars = daily_bars_future.result() if daily_bars_future else []
 
-    return {"market_data": market_data, "option_chain": option_chain, "bars_15m": bars_15m, "daily_bars": daily_bars}
+    return {
+        "market_data": market_data, "option_chain": option_chain, "bars_15m": bars_15m,
+        "bars_5m": bars_5m, "bars_1h": bars_1h, "daily_bars": daily_bars,
+    }
