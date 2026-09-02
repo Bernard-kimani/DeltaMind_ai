@@ -53,22 +53,29 @@ except ImportError:
 # Each track watches a different universe, not one shared list: Track 4's
 # wheel needs cheap-enough names for a CSP's collateral (strike x 100) to
 # clear the 15%/25% sizing caps (verified live 2026-09-01 — INTC/BAC/DIS/
-# PFE/KO/WMT/XLF/XLE all clear the real ~21-DTE/OI>=500/spread<=15% band),
-# while Track 1/5's directional premium buys size off the premium itself
-# (3% cap), so price level doesn't matter — they default to the original
-# momentum/liquidity universe instead.
+# PFE/KO/WMT/XLF/XLE all clear the real ~21-DTE/OI>=500/spread<=15% band).
+# Track 1's directional premium buys size off the premium itself (3% cap),
+# so price level doesn't matter there — original momentum/liquidity universe.
+# Track 5 shared that same list until verified live 2026-09-02: its much
+# narrower 3-7 DTE band (vs Track 1's 1-3) leaves MSFT/AMD/COIN/XLF/XLE/SMH
+# with zero fillable contracts (0 open interest at every strike in that
+# window) -- real qualifying LLM-approved cycles on those names could never
+# produce a trade no matter how good the setup, they'd always dead-end at
+# risk_gate's "no order proposed". Trimmed to the five confirmed liquid
+# (double-digit qualifying contracts) plus AAPL, which had a handful.
 DEFAULT_TRACK = "track1_alpha_spreads"
-_TRACK1_5_SYMBOLS = "SPY,QQQ,IWM,NVDA,AAPL,MSFT,AMZN,GOOGL,META,TSLA,AMD,COIN,XLF,XLE,SMH"
+_TRACK1_SYMBOLS = "SPY,QQQ,IWM,NVDA,AAPL,MSFT,AMZN,GOOGL,META,TSLA,AMD,COIN,XLF,XLE,SMH"
+_TRACK5_SYMBOLS = "SPY,QQQ,IWM,NVDA,TSLA,AAPL"
 DEFAULT_SYMBOLS_BY_TRACK: dict[str, str] = {
-    "track1_alpha_spreads": _TRACK1_5_SYMBOLS,
+    "track1_alpha_spreads": _TRACK1_SYMBOLS,
     "track4_income_wheel": "INTC,BAC,DIS,PFE,KO,WMT,XLF,XLE",
-    "track5_momentum_swing": _TRACK1_5_SYMBOLS,
+    "track5_momentum_swing": _TRACK5_SYMBOLS,
 }
 
 
 def _default_engine(track: str) -> dict[str, Any]:
     return {
-        "symbols": DEFAULT_SYMBOLS_BY_TRACK.get(track, _TRACK1_5_SYMBOLS),
+        "symbols": DEFAULT_SYMBOLS_BY_TRACK.get(track, _TRACK1_SYMBOLS),
         "track": track,
         "interval_seconds": "300",
         "sentiment_threshold": "0.5",
