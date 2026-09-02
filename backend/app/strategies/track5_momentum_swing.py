@@ -34,7 +34,13 @@ from app.config import get_settings
 from app.strategies._common import closest_by_delta
 
 TARGET_DELTA = 0.50
-DELTA_BAND = (0.45, 0.55)
+# Widened from (0.45, 0.55) 2026-09-02: verified live that NVDA/TSLA-type
+# names sit on a $2.50 strike grid, so the nearest-to-target strike often
+# lands just outside a +/-0.05 band by pure bad luck of where price sits
+# between strikes (confirmed -- the same NVDA setup passed minutes later
+# once price drifted). Still near-the-money, just less brittle against
+# discrete strike spacing.
+DELTA_BAND = (0.40, 0.60)
 DTE_TARGET_DAYS = 5
 ACCEPTABLE_DTE = (3, 7)
 MIN_OPEN_INTEREST = 500

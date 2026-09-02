@@ -52,7 +52,7 @@ const TRACK_PARAMS: Record<(typeof TRACKS)[number], { label: string; value: stri
   ],
   track5_momentum_swing: [
     { label: "Structure", value: "Single-leg long call/put (same as Track 1)" },
-    { label: "Target delta", value: "0.45–0.55Δ" },
+    { label: "Target delta", value: "0.40–0.60Δ (widened vs. Track 1's tighter band)" },
     { label: "Target DTE", value: "3–7 days" },
     { label: "Position sizing", value: "3% of equity" },
     { label: "Take-profit (tier 1)", value: "+50% (half, stop → breakeven)" },
