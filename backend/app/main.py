@@ -1,3 +1,5 @@
+import threading
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -43,10 +45,23 @@ app.include_router(ws.router, tags=["ws"])
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
-    # Track 1 and Track 4 run as independent concurrent engines — resume
-    # whichever ones were running before this restart, not just one.
-    for track in db_repo.list_tracks_with_run_state():
-        get_manager(track).auto_resume_if_needed()
+
+    def _resume_all() -> None:
+        # Track 1, Track 4, and Track 5 run as independent concurrent
+        # engines — resume whichever ones were running before this restart,
+        # not just one.
+        for track in db_repo.list_tracks_with_run_state():
+            get_manager(track).auto_resume_if_needed()
+
+    # Uvicorn won't answer ANY request -- including Render's own post-deploy
+    # health check -- until this startup event returns. auto_resume_if_needed
+    # blocks on a real subprocess launch per resumed track (a 0.5s
+    # verification sleep each), which on the free tier's 0.1 CPU share can
+    # push past Render's 5s health-check timeout when 2+ tracks are
+    # resuming at once. Running it in the background lets uvicorn start
+    # answering health checks immediately; trading resumes a few seconds
+    # later regardless.
+    threading.Thread(target=_resume_all, daemon=True).start()
 
 
 @app.get("/api/health")
