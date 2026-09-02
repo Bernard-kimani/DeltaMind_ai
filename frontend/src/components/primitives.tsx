@@ -1,6 +1,16 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 import type { AgentDecision, Position } from "../api/types";
 
+// The backend stores/serializes timestamps as naive UTC (no "Z"/offset
+// suffix) -- passing that straight to `new Date()` gets parsed as the
+// viewer's LOCAL time instead of UTC, silently shifting every displayed
+// time by their UTC offset. Every backend datetime string must go through
+// this before use.
+export function parseUtcTimestamp(iso: string): Date {
+  const hasTimezone = /Z$|[+-]\d{2}:?\d{2}$/.test(iso);
+  return new Date(hasTimezone ? iso : `${iso}Z`);
+}
+
 // Shared layout/visual primitives for DeltaMind's dashboard. Structural
 // philosophy: content sits directly on the window background; Section is
 // the workhorse (heading + hairline divider + content), Card is reserved
@@ -140,7 +150,7 @@ export function DecisionRow({ decision, onClick }: { decision: AgentDecision; on
       {sentiment_score != null && (
         <span className="shrink-0 text-[10px] font-semibold tracking-widest uppercase text-warning">{sentiment_score >= 0 ? "+" : ""}{sentiment_score.toFixed(2)}</span>
       )}
-      <span className="shrink-0 text-[11px] font-mono tabular-nums text-text-secondary">{new Date(created_at).toLocaleTimeString()}</span>
+      <span className="shrink-0 text-[11px] font-mono tabular-nums text-text-secondary">{parseUtcTimestamp(created_at).toLocaleTimeString()}</span>
     </button>
   );
 }

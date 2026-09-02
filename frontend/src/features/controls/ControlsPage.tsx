@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { FlatConfig, Track } from "../../api/types";
-import { Button, PositionRow, Section, Select, StatusDot, TextField } from "../../components/primitives";
+import { Button, parseUtcTimestamp, PositionRow, Section, Select, StatusDot, TextField } from "../../components/primitives";
 import { MODELS_BY_PROVIDER, PROVIDER_LABELS } from "./models";
 import { SymbolPicker } from "./SymbolPicker";
 
@@ -112,7 +112,7 @@ export default function ControlsPage({ track, onStatusMessage }: { track: Track;
   const currentApiKey = form.llm_provider === "featherless" ? form.featherless_api_key : form.fireworks_api_key;
   const setCurrentApiKey = (v: string) => set(form.llm_provider === "featherless" ? "featherless_api_key" : "fireworks_api_key", v);
 
-  const lastDecisionLabel = stats?.last_decision_time ? new Date(stats.last_decision_time).toLocaleTimeString() : "None yet";
+  const lastDecisionLabel = stats?.last_decision_time ? parseUtcTimestamp(stats.last_decision_time).toLocaleTimeString() : "None yet";
 
   return (
     <div className="flex flex-col gap-6">

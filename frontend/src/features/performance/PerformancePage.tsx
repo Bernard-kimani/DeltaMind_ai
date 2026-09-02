@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { AgentDecision, PnlPoint } from "../../api/types";
-import { Card, DecisionRow, Section, StatTile } from "../../components/primitives";
+import { Card, DecisionRow, parseUtcTimestamp, Section, StatTile } from "../../components/primitives";
 
 const WIDTH = 720;
 const HEIGHT = 140;
@@ -142,7 +142,7 @@ function DecisionDetailModal({ decision, onClose }: { decision: AgentDecision; o
         <div className="flex flex-col md:flex-row gap-6">
           <div className="md:w-48 shrink-0 flex flex-col gap-3">
             <div className="text-[11px] font-mono tabular-nums text-text-secondary">
-              {new Date(decision.created_at).toLocaleString()}
+              {parseUtcTimestamp(decision.created_at).toLocaleString()}
             </div>
             {decision.sentiment_score != null && (
               <div className="text-xs font-mono tabular-nums">Sentiment <span className="text-text-primary">{decision.sentiment_score.toFixed(2)}</span></div>
@@ -224,7 +224,7 @@ export default function PerformancePage({ onStatusMessage }: { onStatusMessage: 
                 <span className="text-[11px] font-mono tabular-nums text-text-secondary truncate">{t.thesis || "—"}</span>
               </div>
               <div className="flex items-center gap-3 shrink-0">
-                <span className="text-[11px] font-mono tabular-nums text-text-secondary">{new Date(t.closed_at).toLocaleString()}</span>
+                <span className="text-[11px] font-mono tabular-nums text-text-secondary">{parseUtcTimestamp(t.closed_at).toLocaleString()}</span>
                 <span className={`text-sm font-mono tabular-nums font-semibold ${t.realized_pnl >= 0 ? "text-success" : "text-error"}`}>
                   {fmtMoney(t.realized_pnl)}
                 </span>
