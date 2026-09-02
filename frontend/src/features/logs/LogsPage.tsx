@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
-import { ACTIVE_TRACK } from "../../config";
+import type { Track } from "../../api/types";
 import { Button, Divider, Select, TextField } from "../../components/primitives";
 
 const LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
@@ -33,7 +33,21 @@ const LEVEL_STYLE: Record<(typeof LEVELS)[number], { text: string; row: string }
   CRITICAL: { text: "text-error", row: "border-l-2 border-error bg-error/10" },
 };
 
+const LOG_TRACKS = ["track1_alpha_spreads", "track4_income_wheel", "track5_momentum_swing"] as const;
+const TRACK_TAB_LABEL: Record<(typeof LOG_TRACKS)[number], string> = {
+  track1_alpha_spreads: "Track 1",
+  track4_income_wheel: "Track 4",
+  track5_momentum_swing: "Track 5",
+};
+
 export default function LogsPage({ onStatusMessage }: { onStatusMessage: (msg: string) => void }) {
+  // Used to be locked to config.ts's build-time ACTIVE_TRACK (a single-
+  // track-per-deploy flag from before this app grew a multi-engine
+  // Controls tab) -- every other page already lets you pick a track
+  // in-page (see PerformancePage's toggle), so this was the one place
+  // still hardcoded to Track 1, showing an empty pane whenever Track 1
+  // wasn't the engine actually running.
+  const [track, setTrack] = useState<Track>("track5_momentum_swing");
   const [buffer, setBuffer] = useState<string[]>([]);
   // Defaults to WARNING, not INFO — 2026-08-27: once the pipeline's been
   // confirmed working, day-to-day monitoring only needs TRADE (logged at
@@ -49,6 +63,11 @@ export default function LogsPage({ onStatusMessage }: { onStatusMessage: (msg: s
   const qc = useQueryClient();
 
   useEffect(() => {
+    // Switching tracks means tailing a different log file from scratch —
+    // the old buffer/offset belong to the previous track's file.
+    offsetRef.current = 0;
+    setBuffer([]);
+
     let cancelled = false;
     let inFlight = false;
     const poll = async () => {
@@ -62,7 +81,7 @@ export default function LogsPage({ onStatusMessage }: { onStatusMessage: (msg: s
       if (inFlight) return;
       inFlight = true;
       try {
-        const { lines, new_offset } = await api.tailLog(ACTIVE_TRACK, offsetRef.current);
+        const { lines, new_offset } = await api.tailLog(track, offsetRef.current);
         if (cancelled) return;
         if (lines.length) {
           offsetRef.current = new_offset;
@@ -77,7 +96,7 @@ export default function LogsPage({ onStatusMessage }: { onStatusMessage: (msg: s
     poll();
     const id = setInterval(poll, 1000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [track]);
 
   const filtered = buffer.filter((line) => {
     const lvl = lineLevel(line);
@@ -93,16 +112,27 @@ export default function LogsPage({ onStatusMessage }: { onStatusMessage: (msg: s
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [filtered.length, autoScroll]);
 
-  const { data: stats } = useQuery({ queryKey: ["log-stats"], queryFn: () => api.getLogStats(ACTIVE_TRACK), refetchInterval: 5000 });
+  const { data: stats } = useQuery({ queryKey: ["log-stats", track], queryFn: () => api.getLogStats(track), refetchInterval: 5000 });
 
   const clearMutation = useMutation({
-    mutationFn: () => api.clearLog(ACTIVE_TRACK),
+    mutationFn: () => api.clearLog(track),
     onSuccess: (r) => { offsetRef.current = r.new_offset; setBuffer([]); onStatusMessage("Logs cleared"); qc.invalidateQueries({ queryKey: ["log-stats"] }); },
   });
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex flex-wrap items-end gap-3 pb-4">
+        <div className="flex gap-1">
+          {LOG_TRACKS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTrack(t)}
+              className={`px-3 py-1 text-[11px] font-semibold tracking-wide uppercase border ${track === t ? "border-accent text-accent" : "border-border text-text-secondary hover:text-text-primary"}`}
+            >
+              {TRACK_TAB_LABEL[t]}
+            </button>
+          ))}
+        </div>
         <Select label="Level" value={level} onChange={(e) => setLevel(e.target.value as typeof level)} className="w-32">
           {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
         </Select>

@@ -1,11 +1,11 @@
 import { TRACKS, TRACK_LABELS, TRACK_SUMMARY } from "../../api/types";
 import { Card, Section } from "../../components/primitives";
 
-// Both committed tracks share this one running instance now (top-nav Track 1
-// / Track 4 tabs, Performance's in-page toggle, etc.) — unlike config.ts's
-// ACTIVE_TRACK build flag (still used by LogsPage, which does tail a single
-// track's own log file), this page has no reason to hide either strategy
-// behind a build-time switch: a judge reading "Strategies" should see both.
+// All three tracks share this one running instance now (top-nav tabs,
+// Performance/Logs' own in-page toggles, etc.) — config.ts's ACTIVE_TRACK
+// build flag is unused dead code at this point, nothing left reads it. This
+// page has no reason to hide any strategy behind a build-time switch: a
+// judge reading "Strategies" should see all three.
 const IMPLEMENTED_TRACKS = ["track1_alpha_spreads", "track4_income_wheel", "track5_momentum_swing"] as const;
 
 // Mirrors the constants at the top of each backend/app/strategies/track*.py
