@@ -115,12 +115,14 @@ def load(track: str = DEFAULT_TRACK) -> dict[str, Any]:
         nested = _defaults(track)
         nested["llm"].update(on_disk.get("llm", {}))
 
-        # Back-compat: older single-shared-engine files (pre per-track store)
-        # only ever had one "engine" key, not "engines" — treat it as this
-        # track's saved state once, rather than silently discarding it.
+        # Deliberately no migration of an old pre-per-track-store single
+        # "engine" key: it was shared across whichever track saved last, so
+        # its "track" field is arbitrary, not a real ownership signal --
+        # treating it as this-track's-saved-state is what caused Track 5 to
+        # regress to Track 1's old "SPY,QQQ" default after this file split
+        # per-track. Ignoring it means every track starts clean from its
+        # own new curated default the first time post-deploy.
         on_disk_engines = on_disk.get("engines", {})
-        if not on_disk_engines and "engine" in on_disk:
-            on_disk_engines = {on_disk["engine"].get("track", DEFAULT_TRACK): on_disk["engine"]}
 
         if track in on_disk_engines:
             nested["engines"][track] = {**_default_engine(track), **on_disk_engines[track]}

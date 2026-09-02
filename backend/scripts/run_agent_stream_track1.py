@@ -126,6 +126,14 @@ def main() -> None:
     args = parser.parse_args()
     track = args.track
 
+    # Rebind the module-level logger to a track-specific name -- left as
+    # the hardcoded "agent_stream_track1" (this file's own original name,
+    # predating Track 5), every log line from a Track 5 process claimed to
+    # be "agent_stream_track1" too, which reads as Track 1 activity in
+    # Render's shared log stream even when Track 1 was never started.
+    global logger
+    logger = logging.getLogger(f"agent_stream_{track}")
+
     log_file = _log_file_for_track(track)
     _configure_logging(log_file)
     symbols = [s.strip() for s in args.symbols.split(",")]
