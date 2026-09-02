@@ -43,7 +43,16 @@ TARGET_DELTA = 0.50
 DELTA_BAND = (0.40, 0.60)
 DTE_TARGET_DAYS = 5
 ACCEPTABLE_DTE = (3, 7)
-MIN_OPEN_INTEREST = 500
+# Lowered from 500 2026-09-02: verified live on IWM that its actual ATM
+# strikes (delta 0.45-0.53, exactly on target) carry open interest of only
+# 45-287, while the only strikes clearing 500 OI were far-OTM (delta
+# 0.08-0.30, outside even the widened band) -- for a $1-strike ETF, OI
+# piles up on cheap far-OTM contracts (retail lottery-ticket activity)
+# rather than the true ATM ones, which trade actively without
+# accumulating static open interest. Spread_pct is the more direct
+# fill-quality signal and stays untouched; those same ATM strikes had
+# tight 2-4% spreads, well under the 15% ceiling below.
+MIN_OPEN_INTEREST = 200
 # Same corrected floor as Track 1/Track 4 (see their identical constants'
 # comments) — a cheap contract's percentage spread runs wide even with a
 # perfectly normal absolute spread; 15% screens genuinely thin contracts
