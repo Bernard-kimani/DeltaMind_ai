@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { Track } from "../../api/types";
 import { Button, Divider, Select, TextField } from "../../components/primitives";
+import { DEMO_SINGLE_TRACK, DEMO_TRACK } from "../../config";
 
 const LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
 const LEVEL_ORDER: Record<string, number> = { DEBUG: 0, INFO: 1, WARNING: 2, ERROR: 3, CRITICAL: 4 };
@@ -47,7 +48,7 @@ export default function LogsPage({ onStatusMessage }: { onStatusMessage: (msg: s
   // in-page (see PerformancePage's toggle), so this was the one place
   // still hardcoded to Track 1, showing an empty pane whenever Track 1
   // wasn't the engine actually running.
-  const [track, setTrack] = useState<Track>("track5_momentum_swing");
+  const [track, setTrack] = useState<Track>(DEMO_SINGLE_TRACK ? DEMO_TRACK : "track5_momentum_swing");
   const [buffer, setBuffer] = useState<string[]>([]);
   // Defaults to WARNING, not INFO — 2026-08-27: once the pipeline's been
   // confirmed working, day-to-day monitoring only needs TRADE (logged at
@@ -122,17 +123,19 @@ export default function LogsPage({ onStatusMessage }: { onStatusMessage: (msg: s
   return (
     <div className="flex flex-col h-full">
       <div className="flex flex-wrap items-end gap-3 pb-4">
-        <div className="flex gap-1">
-          {LOG_TRACKS.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTrack(t)}
-              className={`px-3 py-1 text-[11px] font-semibold tracking-wide uppercase border ${track === t ? "border-accent text-accent" : "border-border text-text-secondary hover:text-text-primary"}`}
-            >
-              {TRACK_TAB_LABEL[t]}
-            </button>
-          ))}
-        </div>
+        {!DEMO_SINGLE_TRACK && (
+          <div className="flex gap-1">
+            {LOG_TRACKS.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTrack(t)}
+                className={`px-3 py-1 text-[11px] font-semibold tracking-wide uppercase border ${track === t ? "border-accent text-accent" : "border-border text-text-secondary hover:text-text-primary"}`}
+              >
+                {TRACK_TAB_LABEL[t]}
+              </button>
+            ))}
+          </div>
+        )}
         <Select label="Level" value={level} onChange={(e) => setLevel(e.target.value as typeof level)} className="w-32">
           {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
         </Select>

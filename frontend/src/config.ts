@@ -15,3 +15,12 @@ if (!raw) {
 }
 
 export const ACTIVE_TRACK: Track = (raw as Track) ?? "track1_alpha_spreads";
+
+// Submission-demo flag (2026-09-04): every page that lets you switch
+// tracks (App's top nav, Performance's toggle, Logs' toggle) hides Track
+// 1/4 and locks to Track 5 alone -- today's actively-engineered, currently-
+// running track -- instead of presenting three tracks and diluting the
+// story for judges. Nothing behind this flag is deleted; flip back to
+// false to restore the full multi-track dashboard everywhere at once.
+export const DEMO_SINGLE_TRACK = true;
+export const DEMO_TRACK = "track5_momentum_swing";

@@ -1,12 +1,13 @@
 import { TRACKS, TRACK_LABELS, TRACK_SUMMARY } from "../../api/types";
 import { Card, Section } from "../../components/primitives";
+import { DEMO_SINGLE_TRACK, DEMO_TRACK } from "../../config";
 
-// All three tracks share this one running instance now (top-nav tabs,
-// Performance/Logs' own in-page toggles, etc.) — config.ts's ACTIVE_TRACK
-// build flag is unused dead code at this point, nothing left reads it. This
-// page has no reason to hide any strategy behind a build-time switch: a
-// judge reading "Strategies" should see all three.
-const IMPLEMENTED_TRACKS = ["track1_alpha_spreads", "track4_income_wheel", "track5_momentum_swing"] as const;
+// All three tracks share this one running instance (top-nav tabs,
+// Performance/Logs' own in-page toggles, etc.), gated together by
+// DEMO_SINGLE_TRACK for the submission demo — see config.ts.
+const IMPLEMENTED_TRACKS = DEMO_SINGLE_TRACK
+  ? ([DEMO_TRACK] as const)
+  : (["track1_alpha_spreads", "track4_income_wheel", "track5_momentum_swing"] as const);
 
 // Mirrors the constants at the top of each backend/app/strategies/track*.py
 // module — this page is reference documentation, not a live editor; tuning
@@ -69,7 +70,7 @@ export default function StrategiesPage({ onStatusMessage: _onStatusMessage }: { 
   return (
     <div className="flex flex-col gap-6">
       <Section title="Strategy">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className={`grid grid-cols-1 gap-6 ${DEMO_SINGLE_TRACK ? "lg:max-w-xl" : "lg:grid-cols-3"}`}>
           {IMPLEMENTED_TRACKS.map((track) => (
             <Card key={track} className="p-4 flex flex-col gap-3">
               <h3 className="text-sm font-semibold text-text-primary">{TRACK_LABELS[track]}</h3>

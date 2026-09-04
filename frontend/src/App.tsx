@@ -9,6 +9,7 @@ import BacktestPage from "./features/backtest/BacktestPage";
 import PerformancePage from "./features/performance/PerformancePage";
 import LogsPage from "./features/logs/LogsPage";
 import LandingPage from "./features/landing/LandingPage";
+import { DEMO_SINGLE_TRACK } from "./config";
 
 // Track 1, Track 4, and Track 5 (a looser Track 1 sibling, not a
 // hackathon-labeled track — see api/types.ts) each get their own Controls
@@ -16,8 +17,12 @@ import LandingPage from "./features/landing/LandingPage";
 // localhost, independent panels, so testing all three doesn't require
 // separate dev server instances. Performance covers every track itself via
 // an in-page toggle instead of more top-level tabs.
-const TABS = ["Track 1", "Track 4", "Track 5", "Performance", "Strategies", "Backtest", "Logs"] as const;
-type Tab = (typeof TABS)[number];
+const ALL_TABS = ["Track 1", "Track 4", "Track 5", "Performance", "Strategies", "Backtest", "Logs"] as const;
+type Tab = (typeof ALL_TABS)[number];
+
+// DEMO_SINGLE_TRACK (see config.ts) hides Track 1/4's nav tabs for the
+// submission demo — nothing here is deleted, just not rendered.
+const TABS: readonly Tab[] = DEMO_SINGLE_TRACK ? (["Track 5", "Performance", "Strategies", "Backtest", "Logs"] as const) : ALL_TABS;
 
 export default function App() {
   // Every load starts at the landing gate — Console hands off into the
@@ -25,7 +30,7 @@ export default function App() {
   // "loading the url" and "entering the console" stay two distinct steps
   // every time, not just on a fresh session.
   const [view, setView] = useState<"landing" | "app">("landing");
-  const [tab, setTab] = useState<Tab>("Track 1");
+  const [tab, setTab] = useState<Tab>(DEMO_SINGLE_TRACK ? "Track 5" : "Track 1");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => (localStorage.getItem("deltamind_theme") === "light" ? "light" : "dark"));
   const [statusMessage, setStatusMessage] = useState("Ready");

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { AgentDecision, PnlPoint } from "../../api/types";
 import { Card, DecisionRow, parseUtcTimestamp, Section, StatTile } from "../../components/primitives";
+import { DEMO_SINGLE_TRACK, DEMO_TRACK } from "../../config";
 
 const WIDTH = 720;
 const HEIGHT = 140;
@@ -170,7 +171,7 @@ function DecisionDetailModal({ decision, onClose }: { decision: AgentDecision; o
 const fmtRatio = (v: number | null) => (v === null ? "—" : v.toFixed(2));
 
 export default function PerformancePage({ onStatusMessage }: { onStatusMessage: (msg: string) => void }) {
-  const [track, setTrack] = useState<"track1_alpha_spreads" | "track4_income_wheel" | "track5_momentum_swing">("track1_alpha_spreads");
+  const [track, setTrack] = useState<"track1_alpha_spreads" | "track4_income_wheel" | "track5_momentum_swing">(DEMO_SINGLE_TRACK ? DEMO_TRACK : "track1_alpha_spreads");
   const [openDecision, setOpenDecision] = useState<AgentDecision | null>(null);
 
   const { data: perf } = useQuery({ queryKey: ["performance", track], queryFn: () => api.getPerformance(track), refetchInterval: 10000 });
@@ -183,6 +184,7 @@ export default function PerformancePage({ onStatusMessage }: { onStatusMessage: 
       <Section
         title="Performance"
         action={
+          DEMO_SINGLE_TRACK ? undefined : (
           <div className="flex gap-1">
             {(["track1_alpha_spreads", "track4_income_wheel", "track5_momentum_swing"] as const).map((t) => (
               <button
@@ -194,6 +196,7 @@ export default function PerformancePage({ onStatusMessage }: { onStatusMessage: 
               </button>
             ))}
           </div>
+          )
         }
       >
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-5">
