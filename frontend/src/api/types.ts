@@ -6,10 +6,11 @@ export const TRACK_LABELS: Record<Track, string> = {
   track2_volatility_events: "Track 2 — Volatility & Events",
   track3_hedging: "Track 3 — Hedging & Protection",
   track4_income_wheel: "Track 4 — Income & Overlay (Wheel)",
-  // Not a hackathon-labeled track — a looser Track 1 sibling added
-  // 2026-09-01 after Track 1/4 both went a full live session without a
-  // trade. Named to make that distinction clear in the UI, not "Track 5".
-  track5_momentum_swing: "Momentum Swing — Track 1 Variant",
+  // Internally built 2026-09-01 as a looser sibling of Track 1's gate
+  // after both went a full live session without a trade -- submitted as
+  // Track 1 itself, so the user-visible label reads as Track 1, not a
+  // separate/secondary variant.
+  track5_momentum_swing: "Track 1 — Momentum Swing",
 };
 
 export const TRACK_SUMMARY: Record<Track, { structure: string; regime: string; metric: string }> = {

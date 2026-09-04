@@ -18,11 +18,13 @@ import { DEMO_SINGLE_TRACK } from "./config";
 // separate dev server instances. Performance covers every track itself via
 // an in-page toggle instead of more top-level tabs.
 const ALL_TABS = ["Track 1", "Track 4", "Track 5", "Performance", "Strategies", "Backtest", "Logs"] as const;
-type Tab = (typeof ALL_TABS)[number];
+// Submission demo relabels the single showcased track's tab "Controls" (it
+// IS the submission's Track 1, not a separately-named track) and
+// "Strategies" -> "Strategy" (one strategy, not several) — see config.ts.
+const DEMO_TABS = ["Controls", "Performance", "Strategy", "Backtest", "Logs"] as const;
+type Tab = (typeof ALL_TABS)[number] | (typeof DEMO_TABS)[number];
 
-// DEMO_SINGLE_TRACK (see config.ts) hides Track 1/4's nav tabs for the
-// submission demo — nothing here is deleted, just not rendered.
-const TABS: readonly Tab[] = DEMO_SINGLE_TRACK ? (["Track 5", "Performance", "Strategies", "Backtest", "Logs"] as const) : ALL_TABS;
+const TABS: readonly Tab[] = DEMO_SINGLE_TRACK ? DEMO_TABS : ALL_TABS;
 
 export default function App() {
   // Every load starts at the landing gate — Console hands off into the
@@ -30,7 +32,7 @@ export default function App() {
   // "loading the url" and "entering the console" stay two distinct steps
   // every time, not just on a fresh session.
   const [view, setView] = useState<"landing" | "app">("landing");
-  const [tab, setTab] = useState<Tab>(DEMO_SINGLE_TRACK ? "Track 5" : "Track 1");
+  const [tab, setTab] = useState<Tab>(DEMO_SINGLE_TRACK ? "Controls" : "Track 1");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => (localStorage.getItem("deltamind_theme") === "light" ? "light" : "dark"));
   const [statusMessage, setStatusMessage] = useState("Ready");
@@ -107,9 +109,9 @@ export default function App() {
       <main className="flex-1 overflow-auto p-6">
         {tab === "Track 1" && <ControlsPage track="track1_alpha_spreads" onStatusMessage={setStatusMessage} />}
         {tab === "Track 4" && <ControlsPage track="track4_income_wheel" onStatusMessage={setStatusMessage} />}
-        {tab === "Track 5" && <ControlsPage track="track5_momentum_swing" onStatusMessage={setStatusMessage} />}
+        {(tab === "Track 5" || tab === "Controls") && <ControlsPage track="track5_momentum_swing" onStatusMessage={setStatusMessage} />}
         {tab === "Performance" && <PerformancePage onStatusMessage={setStatusMessage} />}
-        {tab === "Strategies" && <StrategiesPage onStatusMessage={setStatusMessage} />}
+        {(tab === "Strategies" || tab === "Strategy") && <StrategiesPage onStatusMessage={setStatusMessage} />}
         {tab === "Backtest" && <BacktestPage onStatusMessage={setStatusMessage} />}
         {tab === "Logs" && <LogsPage onStatusMessage={setStatusMessage} />}
       </main>
