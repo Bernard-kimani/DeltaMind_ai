@@ -19,15 +19,17 @@ DeltaMind AI watches a curated basket of liquid, options-active symbols in real 
 
 The agent runs one decision cycle per symbol, per bar-close, through a LangGraph state machine:
 
-```
-news_blackout_gate --(blocked)--> END (zero REST/LLM calls spent)
-                   --(clear)--> market_ingestion -> quant_engine
-                                                        |
-                                          qualified? --no--> END (zero LLM calls)
-                                                     --yes-> LLM validator -> risk_gate
-                                                                                |
-                                                              risk_approved? --yes--> execution -> END
-                                                                             --no---> END (logged, no trade)
+```mermaid
+flowchart TD
+    A[news_blackout_gate] -->|blocked| Z1[END — zero REST/LLM calls spent]
+    A -->|clear| B[market_ingestion]
+    B --> C[quant_engine]
+    C -->|not qualified| Z2[END — zero LLM calls]
+    C -->|qualified| D[LLM validator]
+    D --> E[risk_gate]
+    E -->|approved| F[execution]
+    F --> Z3[END]
+    E -->|rejected| Z4[END — logged, no trade]
 ```
 
 The core design principle is **gate cheaply before spending anything**: a deterministic, hand-written technical screener (`quant_engine.py`) has to qualify a setup — real momentum confluence, not a vibe — *before* a single LLM token is spent evaluating it. Only qualifying setups reach the AI layer, which exists to catch what pure technicals can't: does the news/sentiment context actually support this trade right now?
