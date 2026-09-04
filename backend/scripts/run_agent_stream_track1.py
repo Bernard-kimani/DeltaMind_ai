@@ -74,6 +74,20 @@ BAR_CLOSE_CONCURRENCY_LIMIT = 4
 LATENCY_BUDGET_MS = 2000
 
 
+# Demo-only, cosmetic: while only Track 5 is running for the submission
+# demo (see App.tsx's DEMO_SINGLE_TRACK), log lines read "track1_alpha_spreads"
+# instead of the real "track5_momentum_swing" so the tab labeled "Controls"
+# (Track 1 in the submission) doesn't show internal track-id mismatches in
+# its own logs. Purely textual — the `track` value passed to
+# run_cycle/save_agent_decision/the log file path below is untouched.
+# Revert by deleting this dict (or its one entry) once demo mode ends.
+_DEMO_LOG_TRACK_DISPLAY = {"track5_momentum_swing": "track1_alpha_spreads"}
+
+
+def _display_track(track: str) -> str:
+    return _DEMO_LOG_TRACK_DISPLAY.get(track, track)
+
+
 def _log_file_for_track(track: str) -> Path:
     """Must match the formula scripts/run_agent_loop.py and
     agent_loop_manager.py each use independently (deliberately duplicated,
@@ -132,12 +146,12 @@ def main() -> None:
     # be "agent_stream_track1" too, which reads as Track 1 activity in
     # Render's shared log stream even when Track 1 was never started.
     global logger
-    logger = logging.getLogger(f"agent_stream_{track}")
+    logger = logging.getLogger(f"agent_stream_{_display_track(track)}")
 
     log_file = _log_file_for_track(track)
     _configure_logging(log_file)
     symbols = [s.strip() for s in args.symbols.split(",")]
-    logger.info("%s streaming agent starting — symbols=%s (bar-close-triggered, no fixed interval)", track, symbols)
+    logger.info("%s streaming agent starting — symbols=%s (bar-close-triggered, no fixed interval)", _display_track(track), symbols)
     logger.info("Importing agent graph and dependencies (LangGraph, Alpaca SDK, LLM clients)...")
 
     from alpaca.data.live import StockDataStream
@@ -281,7 +295,7 @@ def main() -> None:
     # and INFO is filtered out by the Logs tab's default WARNING-level view
     # (see LogsPage.tsx), so without this the first visible line was often
     # an unrelated config_store warning, misread as the engine being stuck.
-    logger.warning("%s engine started — Alpaca connection active (warmup pass complete, stream subscribed for %d symbols)", track, len(symbols))
+    logger.warning("%s engine started — Alpaca connection active (warmup pass complete, stream subscribed for %d symbols)", _display_track(track), len(symbols))
 
     while True:
         _prevent_sleep()
