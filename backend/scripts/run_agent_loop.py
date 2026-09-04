@@ -98,6 +98,11 @@ def main() -> None:
     from app.llm.rate_limiter import LLMBudgetExceededError
 
     logger.info("Imports complete — entering live decision loop")
+    # WARNING, not INFO — survives the Logs tab's default WARNING-level
+    # filter, so this is the first line actually visible after Start,
+    # instead of an unrelated config_store warning (see
+    # run_agent_stream_track1.py's identical fix).
+    logger.warning("%s engine started — Alpaca connection active (entering live decision loop, symbols=%s)", args.track, symbols)
 
     consecutive_failed_passes = 0
 

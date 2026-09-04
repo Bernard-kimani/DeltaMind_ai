@@ -276,6 +276,12 @@ def main() -> None:
             break
         _process_symbol(symbol, "warmup pass")
     logger.info("Warmup pass complete — now waiting for live bar-close events")
+    # WARNING, not INFO — this is the one line day-to-day monitoring most
+    # wants to see the instant Start is clicked ("did it actually come up"),
+    # and INFO is filtered out by the Logs tab's default WARNING-level view
+    # (see LogsPage.tsx), so without this the first visible line was often
+    # an unrelated config_store warning, misread as the engine being stuck.
+    logger.warning("%s engine started — Alpaca connection active (warmup pass complete, stream subscribed for %d symbols)", track, len(symbols))
 
     while True:
         _prevent_sleep()
