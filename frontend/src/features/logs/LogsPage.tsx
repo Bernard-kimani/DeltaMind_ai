@@ -50,13 +50,11 @@ export default function LogsPage({ onStatusMessage }: { onStatusMessage: (msg: s
   // wasn't the engine actually running.
   const [track, setTrack] = useState<Track>(DEMO_SINGLE_TRACK ? DEMO_TRACK : "track5_momentum_swing");
   const [buffer, setBuffer] = useState<string[]>([]);
-  // Defaults to WARNING, not INFO — 2026-08-27: once the pipeline's been
-  // confirmed working, day-to-day monitoring only needs TRADE (logged at
-  // WARNING specifically so it survives this default — see
-  // run_agent_stream_track1.py/run_agent_loop.py), REJECTED, and real
-  // errors, not every WAIT/BLOCKED no-op cycle. Still switchable back to
-  // INFO from the dropdown for full per-cycle detail.
-  const [level, setLevel] = useState<(typeof LEVELS)[number]>("WARNING");
+  // Defaults to INFO for the submission demo, so the tab isn't blank on
+  // first load (was WARNING — kept the engine-started/TRADE/REJECTED lines
+  // visible day-to-day, but hid the WAIT-cycle activity a judge watching
+  // live expects to see). Still switchable to WARNING from the dropdown.
+  const [level, setLevel] = useState<(typeof LEVELS)[number]>("INFO");
   const [search, setSearch] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const offsetRef = useRef(0);
