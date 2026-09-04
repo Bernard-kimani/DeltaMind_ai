@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { FlatConfig, Track } from "../../api/types";
-import { Button, parseUtcTimestamp, PositionRow, Section, Select, StatusDot, TextField } from "../../components/primitives";
+import { Button, Card, parseUtcTimestamp, PositionRow, Section, Select, StatusDot, TextField } from "../../components/primitives";
 import { MODELS_BY_PROVIDER, PROVIDER_LABELS } from "./models";
 import { SymbolPicker } from "./SymbolPicker";
 
@@ -30,6 +30,7 @@ export default function ControlsPage({ track, onStatusMessage }: { track: Track;
   const [dirty, setDirty] = useState(false);
   const [apiMsg, setApiMsg] = useState<string | null>(null);
   const [alpacaMsg, setAlpacaMsg] = useState<string | null>(null);
+  const [showDemoModeConfirm, setShowDemoModeConfirm] = useState(false);
 
   const { data: config } = useQuery({ queryKey: ["config", track], queryFn: () => api.getConfig(track) });
   const { data: status } = useQuery({ queryKey: ["engine-status", track], queryFn: () => api.getEngineStatus(track), refetchInterval: 3000 });
@@ -58,6 +59,22 @@ export default function ControlsPage({ track, onStatusMessage }: { track: Track;
   const testApiMutation = useMutation({
     mutationFn: () => api.testLLM(form.llm_provider, form.llm_model, form.llm_provider === "featherless" ? form.featherless_api_key : form.fireworks_api_key),
     onSuccess: (r) => setApiMsg(r.message),
+  });
+  const clearKeyMutation = useMutation({
+    mutationFn: () =>
+      api.saveConfig({
+        ...form,
+        featherless_api_key: "",
+        fireworks_api_key: "",
+        clear_featherless_key: form.llm_provider === "featherless",
+        clear_fireworks_key: form.llm_provider === "fireworks",
+      }),
+    onSuccess: (cfg) => {
+      setForm(cfg);
+      setDirty(false);
+      onStatusMessage("API key cleared — this track now runs in demo mode (no LLM) until a new key is saved");
+      qc.invalidateQueries({ queryKey: ["config", track] });
+    },
   });
   const testAlpacaMutation = useMutation({
     mutationFn: () => api.testAlpaca(track),
@@ -111,6 +128,12 @@ export default function ControlsPage({ track, onStatusMessage }: { track: Track;
   const models = MODELS_BY_PROVIDER[form.llm_provider] ?? [];
   const currentApiKey = form.llm_provider === "featherless" ? form.featherless_api_key : form.fireworks_api_key;
   const setCurrentApiKey = (v: string) => set(form.llm_provider === "featherless" ? "featherless_api_key" : "fireworks_api_key", v);
+  const currentApiKeySet = form.llm_provider === "featherless" ? !!form.featherless_api_key_set : !!form.fireworks_api_key_set;
+
+  const handleStartClick = () => {
+    if (!currentApiKeySet) { setShowDemoModeConfirm(true); return; }
+    startMutation.mutate();
+  };
 
   const lastDecisionLabel = stats?.last_decision_time ? parseUtcTimestamp(stats.last_decision_time).toLocaleTimeString() : "None yet";
 
@@ -136,12 +159,21 @@ export default function ControlsPage({ track, onStatusMessage }: { track: Track;
                   <div className="flex-1 min-w-0">
                     <TextField
                       label="API Key" mono type="password" autoComplete="off" value={currentApiKey}
-                      onChange={(e) => setCurrentApiKey(e.target.value)} placeholder="Enter your API key..."
+                      onChange={(e) => setCurrentApiKey(e.target.value)}
+                      placeholder={currentApiKeySet ? "Key configured — paste a new one to replace it" : "No key configured — paste one to enable LLM reasoning"}
                     />
                   </div>
                   <Button onClick={() => testApiMutation.mutate()} disabled={testApiMutation.isPending} className="shrink-0">Test API</Button>
+                  {currentApiKeySet && (
+                    <Button onClick={() => clearKeyMutation.mutate()} disabled={clearKeyMutation.isPending} className="shrink-0">Clear Key</Button>
+                  )}
                 </div>
                 {apiMsg && <p className="text-xs text-text-secondary">{apiMsg}</p>}
+                {!currentApiKeySet && (
+                  <p className="text-xs text-warning">
+                    No {PROVIDER_LABELS[form.llm_provider] ?? form.llm_provider} key configured — this track will run in demo mode: every stage runs live except the LLM validator, which is skipped and logged as such.
+                  </p>
+                )}
               </div>
             </Section>
           </div>
@@ -225,7 +257,7 @@ export default function ControlsPage({ track, onStatusMessage }: { track: Track;
               {alpacaMsg && <p className="text-xs text-text-secondary">{alpacaMsg}</p>}
             </div>
             <div className="grid grid-cols-2 gap-2 mt-4">
-              <Button variant="success" disabled={running || startMutation.isPending} onClick={() => startMutation.mutate()}>Start</Button>
+              <Button variant="success" disabled={running || startMutation.isPending} onClick={handleStartClick}>Start</Button>
               <Button variant="danger" disabled={!running || stopMutation.isPending} onClick={() => stopMutation.mutate()}>Stop</Button>
               <Button variant="warning" className="col-span-2" disabled={!running || restartMutation.isPending} onClick={() => restartMutation.mutate()}>Restart</Button>
             </div>
@@ -241,6 +273,28 @@ export default function ControlsPage({ track, onStatusMessage }: { track: Track;
           {positions?.map((p) => <PositionRow key={p.symbol} {...p} />)}
         </div>
       </Section>
+
+      {showDemoModeConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowDemoModeConfirm(false)} />
+          <Card square className="relative w-full max-w-sm p-6 flex flex-col gap-4">
+            <h2 className="text-[11px] font-semibold tracking-[0.14em] uppercase text-text-secondary">No LLM key configured</h2>
+            <p className="text-sm text-text-primary">
+              Without a {PROVIDER_LABELS[form.llm_provider] ?? form.llm_provider} API key, the engine still runs live — Alpaca connection, the technical gate, and the risk gate all execute for real — but a qualifying setup won't be sent to the LLM validator. This is demo mode.
+            </p>
+            <p className="text-xs text-text-secondary">Paste a key above and Save first if you want full reasoning, or start now in demo mode.</p>
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setShowDemoModeConfirm(false)}>Cancel</Button>
+              <Button
+                variant="success"
+                onClick={() => { setShowDemoModeConfirm(false); startMutation.mutate(); }}
+              >
+                Start in Demo Mode
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

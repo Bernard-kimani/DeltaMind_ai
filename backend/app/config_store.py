@@ -135,7 +135,16 @@ def load(track: str = DEFAULT_TRACK) -> dict[str, Any]:
             nested["engines"][track] = {**_default_engine(track), **on_disk_engines[track]}
 
         for key in ("featherless_api_key", "fireworks_api_key"):
-            encrypted = on_disk.get("llm", {}).get(f"{key}_encrypted")
+            llm_on_disk = on_disk.get("llm", {})
+            if llm_on_disk.get(f"{key}_cleared"):
+                # Explicitly cleared via the Controls tab's "Clear Key" --
+                # distinct from "never saved" (which legitimately falls back
+                # to .env below), so a stale FEATHERLESS_API_KEY still set
+                # as a Render env var can't quietly resurrect a key the user
+                # just removed from the live demo deploy.
+                nested["llm"][key] = ""
+                continue
+            encrypted = llm_on_disk.get(f"{key}_encrypted")
             if encrypted:
                 nested["llm"][key] = _decrypt(encrypted)
 
@@ -145,7 +154,12 @@ def load(track: str = DEFAULT_TRACK) -> dict[str, Any]:
         return _flatten(_defaults(track), track)
 
 
-def save(flat: dict[str, Any], track: str = DEFAULT_TRACK) -> dict[str, Any]:
+def save(
+    flat: dict[str, Any],
+    track: str = DEFAULT_TRACK,
+    clear_featherless_key: bool = False,
+    clear_fireworks_key: bool = False,
+) -> dict[str, Any]:
     on_disk: dict[str, Any] = {}
     if _STORE_PATH.exists():
         try:
@@ -154,14 +168,34 @@ def save(flat: dict[str, Any], track: str = DEFAULT_TRACK) -> dict[str, Any]:
         except Exception:
             logger.exception("Failed to read existing .runtime_config.json before save — overwriting")
 
+    existing_llm = on_disk.get("llm", {})
     llm_out = {
         "provider": flat["llm_provider"],
         "model": flat["llm_model"],
         "temperature": flat["temperature"],
     }
-    for key in ("featherless_api_key", "fireworks_api_key"):
+    # The API route never sends the real key back to the frontend (see
+    # routes_config.py), so an incoming blank value means "the user didn't
+    # touch this field" -- keep whatever's already stored, don't overwrite
+    # it with empty, or every unrelated save (e.g. changing symbols) would
+    # silently wipe a previously-saved key. Clearing one for real (e.g.
+    # scrubbing a personal key before a public demo deploy) is the explicit
+    # clear_*_key flag below, not just an empty string.
+    for key, clear_flag in (
+        ("featherless_api_key", clear_featherless_key),
+        ("fireworks_api_key", clear_fireworks_key),
+    ):
+        if clear_flag:
+            llm_out[f"{key}_encrypted"] = ""
+            llm_out[f"{key}_cleared"] = True
+            continue
         value = flat.get(key, "")
-        llm_out[f"{key}_encrypted"] = _encrypt(value) if value else ""
+        if value:
+            llm_out[f"{key}_encrypted"] = _encrypt(value)
+            llm_out[f"{key}_cleared"] = False
+        else:
+            llm_out[f"{key}_encrypted"] = existing_llm.get(f"{key}_encrypted", "")
+            llm_out[f"{key}_cleared"] = existing_llm.get(f"{key}_cleared", False)
 
     engines_out = on_disk.get("engines", {})
     engines_out[track] = {

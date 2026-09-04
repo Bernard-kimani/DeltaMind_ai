@@ -20,8 +20,15 @@ from app.agents.state import AgentState
 from app.alpaca.mcp_client import get_news
 from app.alpaca.rest_client import get_option_chain
 from app.llm.client import get_llm_client
+from app.llm.providers import get_provider_config
 from app.quant.news_calendar import todays_calendar_summary
 from app.strategies import track5_momentum_swing
+
+DEMO_MODE_THESIS = (
+    "Demo mode — no Featherless API key configured, so this qualifying setup "
+    "was not sent to the LLM validator. Paste a Featherless API key in "
+    "Controls and Start again to enable full reasoning."
+)
 
 # Deliberately lower than Track 1's (0.50 / 70.0) — see module docstring.
 # Sentiment only needs to not outright contradict the technical direction,
@@ -45,6 +52,15 @@ Evaluation Rules:
 def run(state: AgentState) -> dict:
     symbol = state["symbol"]
     signal = state.get("technical_signal", {})
+
+    # No key configured (e.g. a judge running the public demo who hasn't
+    # pasted their own yet) -- skip the LLM call entirely rather than let
+    # every qualifying cycle fail with an auth error, which would otherwise
+    # count toward the stream's consecutive-failure circuit breaker and
+    # could stop the whole engine over a missing key, not a real fault.
+    if not get_provider_config().api_key:
+        return {"sentiment_score": None, "thesis": DEMO_MODE_THESIS, "proposed_order": None}
+
     headlines = get_news([symbol])
 
     user = (

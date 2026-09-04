@@ -14,6 +14,12 @@ class FlatConfig(BaseModel):
     llm_model: str
     featherless_api_key: str = ""
     fireworks_api_key: str = ""
+    # True only for an explicit "Clear Key" action from the Controls tab --
+    # a blank featherless_api_key/fireworks_api_key above just means "the
+    # user didn't touch this field" (see get_config's redaction below, which
+    # is why the field always loads blank) and leaves the stored key alone.
+    clear_featherless_key: bool = False
+    clear_fireworks_key: bool = False
     temperature: str = "0.3"
     symbols: str = "SPY,QQQ"
     track: str = "track1_alpha_spreads"
@@ -28,19 +34,41 @@ class TestLLMRequest(BaseModel):
     api_key: str
 
 
+def _redact(cfg: dict) -> dict:
+    """Never let a saved API key reach the browser -- `GET /api/config` is a
+    public, unauthenticated endpoint on the live demo deploy, so returning
+    the real value here would let anyone curl it straight out of the JSON
+    response regardless of the Controls tab's password-masked input (that
+    only hides it visually once it's already in the page). The frontend
+    gets a boolean instead so it can show "a key is configured" without
+    ever holding the actual value."""
+    return {
+        **cfg,
+        "featherless_api_key": "",
+        "fireworks_api_key": "",
+        "featherless_api_key_set": bool(cfg.get("featherless_api_key")),
+        "fireworks_api_key_set": bool(cfg.get("fireworks_api_key")),
+    }
+
+
 @router.get("")
 def get_config(track: str = "track1_alpha_spreads") -> dict:
-    return config_store.load(track)
+    return _redact(config_store.load(track))
 
 
 @router.post("")
 def save_config(body: FlatConfig) -> dict:
-    return config_store.save(body.model_dump(), body.track)
+    saved = config_store.save(
+        body.model_dump(), body.track,
+        clear_featherless_key=body.clear_featherless_key,
+        clear_fireworks_key=body.clear_fireworks_key,
+    )
+    return _redact(saved)
 
 
 @router.post("/reset")
 def reset_config(track: str = "track1_alpha_spreads") -> dict:
-    return config_store.reset(track)
+    return _redact(config_store.reset(track))
 
 
 @router.post("/test-llm")

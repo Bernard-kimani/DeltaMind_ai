@@ -81,8 +81,19 @@ export interface AgentDecision {
 export interface FlatConfig {
   llm_provider: "featherless" | "fireworks";
   llm_model: string;
+  // Always blank from the server (see routes_config.py's _redact) -- a
+  // real value here is only ever something the user just typed, about to
+  // be saved, never one loaded back from a previous save.
   featherless_api_key: string;
   fireworks_api_key: string;
+  // Server-reported: whether a key is currently stored, without exposing
+  // it. Absent on a locally-built (not-yet-saved) form.
+  featherless_api_key_set?: boolean;
+  fireworks_api_key_set?: boolean;
+  // Set only to explicitly wipe a stored key via Save — see ControlsPage's
+  // "Clear Key" button. Always false otherwise.
+  clear_featherless_key?: boolean;
+  clear_fireworks_key?: boolean;
   temperature: string;
   symbols: string;
   track: Track;
